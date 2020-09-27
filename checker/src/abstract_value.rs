@@ -27,6 +27,8 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::rc::Rc;
 
+//todo: without that import Rustc cannot see OctagonsDomain
+use crate::octagons_domain::*;
 
 // See https://github.com/facebookexperimental/MIRAI/blob/master/documentation/AbstractValues.md.
 
