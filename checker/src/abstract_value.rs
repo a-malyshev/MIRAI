@@ -323,8 +323,6 @@ impl AbstractValue {
             });
             let interval = val.get_as_interval();
             let octagon = val.get_as_octagon();
-            println!("interval is {:?}", interval);
-            println!("octagon is {:?}", octagon);
             let tags = val.get_tags();
             Rc::new(AbstractValue {
                 expression: Expression::Variable {
@@ -523,7 +521,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             if let (Expression::CompileTimeConstant(v1), Expression::CompileTimeConstant(v2)) =
                 (&right.expression, &other.expression)
             {
-                println!("adding to vars");
                 let folded = v1.add(v2);
                 if folded != ConstantDomain::Bottom {
                     return left.addition(Rc::new(folded.into()));
@@ -581,8 +578,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         };
         let interval = self.get_cached_interval().add(&other.get_cached_interval());
         let octagon = self.get_cached_octagon().add(&other.get_cached_octagon());
-        println!("addition. interval {:?}", interval);
-        println!("addition. octagon {:?}", octagon);
         if interval.is_contained_in(&target_type) {
             return Rc::new(FALSE);
         }
@@ -1007,7 +1002,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             return self.and(consequent);
         }
         let self_as_bool = self.as_bool_if_known();
-        //println!("condition of conditional: {:?}", self_as_bool);
         if self_as_bool == Some(true) {
             // [true ? x : y] -> x
             return consequent;
@@ -1613,7 +1607,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             .get_cached_octagon()
             .greater_than(other.get_cached_octagon().as_ref())
         {
-            println!("octagon. GT");
             return Rc::new(result.into());
         }
         if let Some(result) = self
@@ -1994,7 +1987,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 }
             }
             _ => {
-                //println!("logical not. Exp: {:?}", self.expression);
                 AbstractValue::make_unary(self.clone(), |operand| Expression::LogicalNot {
                 operand,
             })},
@@ -2090,7 +2082,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         };
         let interval = self.get_cached_interval().mul(&other.get_cached_interval());
         let octagon = self.get_cached_octagon().mul(&other.get_cached_octagon());
-        println!("multiplication. Octagon: {:?}", octagon);
         if interval.is_contained_in(&target_type) || octagon.is_contained_in(&target_type) {
             return Rc::new(FALSE);
         }
@@ -2111,7 +2102,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
     fn negate(self) -> Rc<AbstractValue> {
         if let Expression::CompileTimeConstant(v1) = &self.expression {
             let result = v1.neg();
-            println!("negated value: {:?}", result);
             if result != ConstantDomain::Bottom {
                 return Rc::new(result.into());
             }
@@ -2719,7 +2709,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if let Expression::CompileTimeConstant(ConstantDomain::I128(0))
         | Expression::CompileTimeConstant(ConstantDomain::U128(0)) = &self.expression
         {
-            println!("negation. value: {:?}", other.clone().negate());
             return other.negate();
         };
         // [self - (- operand)] -> self + operand
@@ -2785,7 +2774,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         };
         let interval = self.get_cached_interval().sub(&other.get_cached_interval());
         let octagon = self.get_cached_octagon().sub(&other.get_cached_octagon());
-        println!("subtraction. Octagon: {:?}", octagon);
         if interval.is_contained_in(&target_type) {
             return Rc::new(FALSE);
         }
@@ -2979,7 +2967,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
     #[logfn_inputs(TRACE)]
     fn get_cached_interval(&self) -> Rc<IntervalDomain> {
         {
-            //println!("getting cached interval");
             let mut cached_interval = self.interval.borrow_mut();
             let interval_opt = cached_interval.as_ref();
             if let Some(interval) = interval_opt {
@@ -3014,7 +3001,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             Expression::CompileTimeConstant(ConstantDomain::I128(val)) => (*val).into(),
             //Expression::CompileTimeConstant(ConstantDomain::U128(val)) => (*val).into(),
             Expression::Add { left, right } => {
-                println!("addition. octagon");
                 left.get_as_octagon().add(&right.get_as_octagon())
             },
             Expression::ConditionalExpression {
@@ -3030,7 +3016,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             Expression::Mul { left, right } => left.get_as_octagon().mul(&right.get_as_octagon()),
             Expression::Neg { operand } => {
                 let octa = operand.get_as_octagon().neg();
-                println!("negation. Octagon: {:?}", octa);
                 octa
             }
             Expression::Sub { left, right } => left.get_as_octagon().sub(&right.get_as_octagon()),
@@ -3039,38 +3024,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 .fold(default.get_as_octagon(), |acc, (_, result)| {
                     acc.widen(&result.get_as_octagon())
                 }),
-            //Expression::TaggedExpression { operand, .. } => operand.get_as_interval(),
-            //Expression::WidenedJoin { operand, .. } => {
-                //let interval = operand.get_as_interval();
-                //if interval.is_bottom() {
-                    //return interval;
-                //}
-                //if let Expression::Join { left, .. } = &operand.expression {
-                    //let left_interval = left.get_as_interval();
-                    //if left_interval.is_bottom() {
-                        //return interval_domain::BOTTOM;
-                    //}
-                    //match (left_interval.lower_bound(), interval.lower_bound()) {
-                        //(Some(llb), Some(lb)) if llb == lb => {
-                            //// The lower bound is finite and does not change as a result of the fixed
-                            //// point computation, so we can keep it, but we remove the upper bound.
-                            //return interval.remove_upper_bound();
-                        //}
-                        //_ => (),
-                    //}
-                    //match (left_interval.upper_bound(), interval.upper_bound()) {
-                        //(Some(lub), Some(ub)) if lub == ub => {
-                            //// The upper bound is finite and does not change as a result of the fixed
-                            //// point computation, so we can keep it, but we remove the lower bound.
-                            //return interval.remove_lower_bound();
-                        //}
-                        //_ => (),
-                    //}
-                //}
-                //interval
-            //}
             _ => {
-                println!("Octagon matching. Expression is {:?}", &self.expression);
                 octagon_domain::BOTTOM
             }
                 
