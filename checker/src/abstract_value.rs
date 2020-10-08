@@ -332,8 +332,7 @@ impl AbstractValue {
                 expression_size: 1,
                 interval: RefCell::new(Some(Rc::new(interval))),
                 tags: RefCell::new(Some(Rc::new(tags))),
-                // todo: add Some value
-                octagon: RefCell::new(None),
+                octagon: RefCell::new(Some(Rc::new(octagon))),
             })
         } else {
             Rc::new(AbstractValue {
@@ -1502,7 +1501,14 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if let Some(result) = self
             .get_cached_interval()
             .greater_or_equal(&other.get_cached_interval())
-            //TODO: add comparison for octagons
+        {
+            return Rc::new(result.into());
+        }
+        //TODO: since the cost/benefits is unclear,
+        // it is good to make the operation optional
+        if let Some(result) = self
+            .get_cached_octagon()
+            .greater_or_equal(other.get_cached_octagon().as_ref())
         {
             return Rc::new(result.into());
         }
@@ -1520,14 +1526,16 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             return Rc::new(v1.greater_than(v2).into());
         };
         if let Some(result) = self
-            .get_cached_octagon()
-            .greater_than(other.get_cached_octagon().as_ref())
+            .get_cached_interval()
+            .greater_than(other.get_cached_interval().as_ref())
         {
             return Rc::new(result.into());
         }
+        //TODO: since the cost/benefits is unclear,
+        // it is good to make the operation optional
         if let Some(result) = self
-            .get_cached_interval()
-            .greater_than(other.get_cached_interval().as_ref())
+            .get_cached_octagon()
+            .greater_than(other.get_cached_octagon().as_ref())
         {
             return Rc::new(result.into());
         }
@@ -1807,7 +1815,14 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if let Some(result) = self
             .get_cached_interval()
             .less_equal(&other.get_cached_interval())
-            //TODO: add comparison for octagons
+        {
+            return Rc::new(result.into());
+        }
+        //TODO: since the cost/benefits is unclear,
+        // it is good to make the operation optional
+        if let Some(result) = self
+            .get_cached_octagon()
+            .less_equal(other.get_cached_octagon().as_ref())
         {
             return Rc::new(result.into());
         }
@@ -1828,7 +1843,14 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if let Some(result) = self
             .get_cached_interval()
             .less_than(other.get_cached_interval().as_ref())
-            //TODO: add comparison for octagons
+        {
+            return Rc::new(result.into());
+        }
+        //TODO: since the cost/benefits is unclear,
+        // it is good to make the operation optional
+        if let Some(result) = self
+            .get_cached_octagon()
+            .less_than(other.get_cached_octagon().as_ref())
         {
             return Rc::new(result.into());
         }
@@ -2743,6 +2765,8 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         self.get_cached_octagon()
     }
 
+    /// Constructs an element of the Octagon domain for simple expressions.
+    #[logfn_inputs(TRACE)]
     fn get_as_octagon(&self) -> OctagonDomain {
         if self.expression_size > k_limits::MAX_EXPRESSION_SIZE / 10 {
             return octagon_domain::BOTTOM;
@@ -2750,7 +2774,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         match &self.expression {
             Expression::Top => octagon_domain::BOTTOM,
             Expression::CompileTimeConstant(ConstantDomain::I128(val)) => (*val).into(),
-            //Expression::CompileTimeConstant(ConstantDomain::U128(val)) => (*val).into(),
+            Expression::CompileTimeConstant(ConstantDomain::U128(val)) => (*val).into(),
             Expression::Add { left, right } => {
                 left.get_as_octagon().add(&right.get_as_octagon())
             },
