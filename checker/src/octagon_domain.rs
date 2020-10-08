@@ -8,6 +8,7 @@ use crate::expression::ExpressionType::{self, *};
 use log_derive::logfn_inputs;
 use serde::{Deserialize, Serialize};
 use std::cmp;
+use std::convert::TryFrom;
 
 /// An element of the Octagon domain is a Distance-Bound Matrix(DBM) of size 4x4.
 /// Each cell of the matrix represents potential constraint of the form Vi-Vj<=c,
