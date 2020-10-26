@@ -391,6 +391,7 @@ impl<'analysis, 'compilation, 'tcx, E> BodyVisitor<'analysis, 'compilation, 'tcx
                 local_val
             }
         };
+        //println!("bv. refined_res: {:?}", refined_val);
         let result = if refined_val.is_top() {
             if path.path_length() < k_limits::MAX_PATH_LENGTH {
                 let mut result = None;

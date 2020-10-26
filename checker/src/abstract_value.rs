@@ -11,10 +11,12 @@ use crate::expression::Expression::{ConditionalExpression, Join};
 use crate::expression::{Expression, ExpressionType};
 use crate::interval_domain::{self, IntervalDomain};
 use crate::k_limits;
+use crate::octagon_domain::{self, OctagonDomain};
 use crate::path::PathRefinement;
 use crate::path::{Path, PathEnum, PathSelector};
+use crate::smt_solver::{SmtResult, SmtSolver};
 use crate::tag_domain::{Tag, TagDomain};
-use crate::octagon_domain::{self, OctagonDomain};
+use crate::z3_solver::Z3Solver;
 
 use crate::known_names::KnownNames;
 use log_derive::{logfn, logfn_inputs};
@@ -78,6 +80,9 @@ impl PartialEq for AbstractValue {
         self.expression.eq(&other.expression)
     }
 }
+
+const ID_ENABLED: bool = false;
+const OD_ENABLED: bool = false;
 
 /// An abstract domain element that all represent the impossible concrete value.
 /// I.e. the corresponding set of possible concrete values is empty.
@@ -501,7 +506,8 @@ pub trait AbstractValueTrait: Sized {
         post_env: &Environment,
         fresh: usize,
     ) -> Self;
-    fn refine_with(&self, path_condition: &Self, depth: usize) -> Self;
+    fn refine_with(&self, path_condition: &Self,  depth: usize) -> Self;
+    //fn refine_with(&self, path_condition: &Self, smt_solver: &Z3Solver, depth: usize) -> Self;
     fn transmute(&self, target_type: ExpressionType) -> Self;
     fn try_resolve_as_byte_array(&self, _environment: &Environment) -> Option<Vec<u8>>;
     fn try_resolve_as_ref_to_str(&self, environment: &Environment) -> Option<Rc<str>>;
@@ -594,10 +600,17 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(result.into());
             }
         };
-        let interval = self.get_cached_interval().add(&other.get_cached_interval());
-        let octagon = self.get_cached_octagon().add(&other.get_cached_octagon());
-        if interval.is_contained_in(&target_type) {
-            return Rc::new(FALSE);
+        if ID_ENABLED {
+            let interval = self.get_cached_interval().add(&other.get_cached_interval());
+            if interval.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
+        }
+        if OD_ENABLED {
+            let octagon = self.get_cached_octagon().add(&other.get_cached_octagon());
+            if octagon.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
         }
         AbstractValue::make_typed_binary(
             self.clone(),
@@ -1649,19 +1662,21 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.greater_or_equal(v2).into());
         };
-        if let Some(result) = self
-            .get_cached_interval()
-            .greater_or_equal(&other.get_cached_interval())
-        {
-            return Rc::new(result.into());
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .greater_or_equal(&other.get_cached_interval())
+            {
+                return Rc::new(result.into());
+            }
         }
-        //TODO: since the cost/benefits is unclear,
-        // it is good to make the operation optional
-        if let Some(result) = self
-            .get_cached_octagon()
-            .greater_or_equal(other.get_cached_octagon().as_ref())
-        {
-            return Rc::new(result.into());
+        if OD_ENABLED {
+            if let Some(result) = self
+                .get_cached_octagon()
+                .greater_or_equal(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
         AbstractValue::make_binary(self.clone(), other, |left, right| {
             Expression::GreaterOrEqual { left, right }
@@ -1676,19 +1691,22 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.greater_than(v2).into());
         };
-        if let Some(result) = self
-            .get_cached_interval()
-            .greater_than(other.get_cached_interval().as_ref())
-        {
-            return Rc::new(result.into());
+
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .greater_than(other.get_cached_interval().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
-        //TODO: since the cost/benefits is unclear,
-        // it is good to make the operation optional
-        if let Some(result) = self
-            .get_cached_octagon()
-            .greater_than(other.get_cached_octagon().as_ref())
-        {
-            return Rc::new(result.into());
+        if OD_ENABLED {
+            if let Some(result) = self
+                .get_cached_octagon()
+                .greater_than(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
         AbstractValue::make_binary(self.clone(), other, |left, right| Expression::GreaterThan {
             left,
@@ -1980,19 +1998,21 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.less_or_equal(v2).into());
         };
-        if let Some(result) = self
-            .get_cached_interval()
-            .less_equal(&other.get_cached_interval())
-        {
-            return Rc::new(result.into());
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .less_equal(&other.get_cached_interval())
+            {
+                return Rc::new(result.into());
+            }
         }
-        //TODO: since the cost/benefits is unclear,
-        // it is good to make the operation optional
-        if let Some(result) = self
-            .get_cached_octagon()
-            .less_equal(other.get_cached_octagon().as_ref())
-        {
-            return Rc::new(result.into());
+        if OD_ENABLED {
+            if let Some(result) = self
+                .get_cached_octagon()
+                .less_equal(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
         AbstractValue::make_binary(self.clone(), other, |left, right| Expression::LessOrEqual {
             left,
@@ -2008,19 +2028,21 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.less_than(v2).into());
         };
-        if let Some(result) = self
-            .get_cached_interval()
-            .less_than(other.get_cached_interval().as_ref())
-        {
-            return Rc::new(result.into());
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .less_than(other.get_cached_interval().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
-        //TODO: since the cost/benefits is unclear,
-        // it is good to make the operation optional
-        if let Some(result) = self
-            .get_cached_octagon()
-            .less_than(other.get_cached_octagon().as_ref())
-        {
-            return Rc::new(result.into());
+        if OD_ENABLED {
+            if let Some(result) = self
+                .get_cached_octagon()
+                .less_than(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
         }
         AbstractValue::make_binary(self.clone(), other, |left, right| Expression::LessThan {
             left,
@@ -2237,10 +2259,17 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(result.into());
             }
         };
-        let interval = self.get_cached_interval().mul(&other.get_cached_interval());
-        let octagon = self.get_cached_octagon().mul(&other.get_cached_octagon());
-        if interval.is_contained_in(&target_type) || octagon.is_contained_in(&target_type) {
-            return Rc::new(FALSE);
+        if ID_ENABLED {
+            let interval = self.get_cached_interval().mul(&other.get_cached_interval());
+            if interval.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
+        }
+        if OD_ENABLED {
+            let octagon = self.get_cached_octagon().mul(&other.get_cached_octagon());
+            if octagon.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
         }
         AbstractValue::make_typed_binary(
             self.clone(),
@@ -2744,11 +2773,17 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(result.into());
             }
         };
-        let interval = other.get_cached_interval();
-        let octagon = other.get_cached_octagon();
-        if interval.is_contained_in_width_of(&target_type) || 
-            octagon.is_contained_in_width_of(&target_type) {
-            return Rc::new(FALSE);
+        if ID_ENABLED {
+            let interval = other.get_cached_interval();
+            if interval.is_contained_in_width_of(&target_type) {
+                return Rc::new(FALSE);
+            }
+        }
+        if OD_ENABLED {
+            let octagon = other.get_cached_octagon();
+            if octagon.is_contained_in_width_of(&target_type) {
+                return Rc::new(FALSE);
+            }
         }
         AbstractValue::make_typed_binary(
             self.clone(),
@@ -2800,11 +2835,17 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(result.into());
             }
         };
-        let interval = &other.get_cached_interval();
-        let octagon = &other.get_cached_octagon();
-        if interval.is_contained_in_width_of(&target_type) || 
-            octagon.is_contained_in_width_of(&target_type) {
-            return Rc::new(FALSE);
+        if ID_ENABLED {
+            let interval = &other.get_cached_interval();
+            if interval.is_contained_in_width_of(&target_type) {
+                return Rc::new(FALSE);
+            }
+        }
+        if OD_ENABLED { 
+            let octagon = &other.get_cached_octagon();
+            if octagon.is_contained_in_width_of(&target_type) {
+                return Rc::new(FALSE);
+            }
         }
         AbstractValue::make_typed_binary(
             self.clone(),
@@ -2903,10 +2944,17 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(result.into());
             }
         };
-        let interval = self.get_cached_interval().sub(&other.get_cached_interval());
-        let octagon = self.get_cached_octagon().sub(&other.get_cached_octagon());
-        if interval.is_contained_in(&target_type) {
-            return Rc::new(FALSE);
+        if ID_ENABLED {
+            let interval = self.get_cached_interval().sub(&other.get_cached_interval());
+            if interval.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
+        }
+        if OD_ENABLED { 
+            let octagon = self.get_cached_octagon().sub(&other.get_cached_octagon());
+            if octagon.is_contained_in(&target_type) {
+                return Rc::new(FALSE);
+            }
         }
         AbstractValue::make_typed_binary(
             self.clone(),
@@ -3920,11 +3968,13 @@ impl AbstractValueTrait for Rc<AbstractValue> {
     /// of refine_paths, which ensures that paths stay unique (dealing with aliasing is expensive).
     #[logfn_inputs(TRACE)]
     fn refine_with(&self, path_condition: &Self, depth: usize) -> Rc<AbstractValue> {
+    //fn refine_with(&self, path_condition: &Self, smt_solver: &Z3Solver, depth: usize) -> Rc<AbstractValue> {
         if self.is_bottom() || self.is_top() {
             return self.clone();
         };
         //do not use false path conditions to refine things
         checked_precondition!(path_condition.as_bool_if_known().is_none());
+        //println!("refining condition {:?} of expression {:?} with depth {:?}", path_condition, path_condition.expression, depth);
         if depth >= k_limits::MAX_REFINE_DEPTH {
             info!("max refine depth exceeded during refine_with");
             //todo: perhaps this should go away.
@@ -3936,6 +3986,16 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if path_condition.eq(self) {
             return Rc::new(TRUE);
         }
+
+        //smt_solver.get_as_z3_ast(&path_condition.expression);
+        
+        //let mut ec = smt_solver.get_as_smt_predicate(&path_condition.expression);
+        //let smt_res = smt_solver.solve_expression(&mut ec);
+
+        //if SmtResult::Satisfiable == smt_res {
+        //};
+
+        //self.addition(1)
 
         // If the path context constrains the self expression to be equal to a constant, just
         // return the constant.
