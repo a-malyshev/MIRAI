@@ -81,7 +81,7 @@ impl PartialEq for AbstractValue {
     }
 }
 
-const ID_ENABLED: bool = false;
+const ID_ENABLED: bool = true;
 const OD_ENABLED: bool = false;
 
 /// An abstract domain element that all represent the impossible concrete value.
@@ -326,6 +326,9 @@ impl AbstractValue {
     /// Initializes the optional domains to None.
     #[logfn_inputs(TRACE)]
     pub fn make_from(expression: Expression, expression_size: u64) -> Rc<AbstractValue> {
+        //if expression_size >= 1000 {
+            //println!("expression is {:?} and its size {:?}", expression, expression_size);
+        //}
         if expression_size > k_limits::MAX_EXPRESSION_SIZE {
             if expression_size < u64::MAX {
                 trace!("expression {:?}", expression);
@@ -343,8 +346,13 @@ impl AbstractValue {
                 tags: RefCell::new(None),
                 octagon: RefCell::new(None),
             });
-            let interval = val.get_as_interval();
-            let octagon = val.get_as_octagon();
+
+            let interval = if ID_ENABLED {
+                Some(Rc::new(val.get_as_interval()))
+            } else { None };
+            let octagon = if OD_ENABLED {
+                Some(Rc::new(val.get_as_octagon()))
+            } else { None };
             let tags = val.get_tags();
             Rc::new(AbstractValue {
                 expression: Expression::Variable {
@@ -352,9 +360,9 @@ impl AbstractValue {
                     var_type,
                 },
                 expression_size: 1,
-                interval: RefCell::new(Some(Rc::new(interval))),
+                interval: RefCell::new(interval),
                 tags: RefCell::new(Some(Rc::new(tags))),
-                octagon: RefCell::new(Some(Rc::new(octagon))),
+                octagon: RefCell::new(octagon),
             })
         } else {
             Rc::new(AbstractValue {
@@ -3987,7 +3995,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             return Rc::new(TRUE);
         }
 
-        //smt_solver.get_as_z3_ast(&path_condition.expression);
         
         //let mut ec = smt_solver.get_as_smt_predicate(&path_condition.expression);
         //let smt_res = smt_solver.solve_expression(&mut ec);

@@ -130,10 +130,9 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 // No need to track this data
                 return;
             }
-            PathEnum::Computed { .. }
-            | PathEnum::Offset { .. }
-            | PathEnum::QualifiedPath { .. } => {
-                path = path.canonicalize(&self.bv.current_environment);
+            PathEnum::Alias { .. } | PathEnum::Offset { .. } | PathEnum::QualifiedPath { .. } => {
+                //println!("Path type is {:?}\npath: {:?}", &path.value, &path);
+                path = path.refine_paths(&self.bv.current_environment, 0);
             }
             _ => {}
         }
