@@ -12,18 +12,18 @@ use std::convert::TryFrom;
 
 /// An element of the Octagon domain is a Distance-Bound Matrix(DBM) of size 4x4.
 /// Each cell of the matrix represents potential constraint of the form Vi-Vj<=c,
-/// where c is some constant, Vi and Vj are variables. 
-/// For instance, DBM can be represented as follows 
-///   | V1 |  V2 |  V3 |  V4 |
-/// V1|  0 | -10 |  -5 |  15 |
-/// V2| 10 |   0 | -15 |   5 |
-/// V3| -5 |  15 |   0 | -20 |
-/// V4| 15 |   5 |  20 |   0 |
+/// where c is some constant, Vi and Vj are variables.
+/// For instance, DBM can be represented as follows
+///   |  V1  |  V2  |  V3  |  V4  |
+/// V1| +inf | +inf |   3  |   3  |
+/// V2| +inf | +inf |   3  |   3  |
+/// V3|   3  |   3  | +inf |   8  |
+/// V4|   3  |   3  |   2  | +inf |
 ///
 /// The matrix has twice more columns and rows because each variable represents
 /// positive and negative values in the constraints. More specifically, V2i-1 is
-/// a positive value, V2i is a negative one. In other words, if at some point 
-/// of the static analysis some variable x has been encountered, V1 would 
+/// a positive value, V2i is a negative one. In other words, if at some point
+/// of the static analysis some variable x has been encountered, V1 would
 /// represent +x values while V2 -x ones. Thus, the constraint V2-V1<=-10 can be
 /// represented as x >=-5.
 /// Octagon domain elements are constructed on demand from AbstractDomain expressions.
@@ -35,8 +35,9 @@ use std::convert::TryFrom;
 /// while x < 4 {
 ///     x += 1;
 ///     y = if random() { y + 1 };
-/// } 
+/// }
 /// ```
+/// For more details, consult the original paper by Antoine Miné (https://arxiv.org/pdf/cs/0703084.pdf)
 #[derive(Serialize, Deserialize, Clone, Eq, PartialOrd, PartialEq, Hash, Ord)]
 pub struct OctagonDomain {
     dbm: [[i128; 4]; 4],
@@ -53,12 +54,10 @@ pub const BOTTOM: OctagonDomain = OctagonDomain {
 };
 
 pub const TOP: OctagonDomain = {
-    let mut dbm = [[0i128; 4]; 4];
+    let mut dbm = [[std::i128::MAX; 4]; 4];
     dbm[0][1] = std::i128::MIN;
     dbm[1][0] = std::i128::MAX;
-    OctagonDomain {
-        dbm
-    }
+    OctagonDomain { dbm }
 };
 
 impl From<i128> for OctagonDomain {
@@ -81,12 +80,10 @@ impl From<u128> for OctagonDomain {
 
 impl OctagonDomain {
     pub fn new(left: i128, right: i128) -> Self {
-        let mut dbm = [[0i128; 4]; 4];
+        let mut dbm = [[std::i128::MAX; 4]; 4];
         dbm[0][1] = left;
         dbm[1][0] = right;
-        OctagonDomain {
-            dbm
-        }
+        OctagonDomain { dbm }
     }
 
     #[logfn_inputs(TRACE)]
@@ -137,7 +134,6 @@ impl OctagonDomain {
             None
         }
     }
-
 
     #[logfn_inputs(TRACE)]
     pub fn mul(&self, other: &Self) -> Self {
@@ -207,7 +203,6 @@ impl OctagonDomain {
         }
     }
 
-    
     #[logfn_inputs(TRACE)]
     pub fn less_equal(&self, other: &Self) -> Option<bool> {
         if self.is_bottom() || self.is_top() || other.is_bottom() || other.is_top() {
@@ -233,7 +228,6 @@ impl OctagonDomain {
             None
         }
     }
-
 
     #[logfn_inputs(TRACE)]
     pub fn neg(&self) -> Self {

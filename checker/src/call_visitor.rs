@@ -2375,8 +2375,6 @@ impl<'call, 'block, 'analysis, 'compilation, 'tcx, E>
                 .already_reported_errors_for_call_to
                 .contains(&self.callee_fun_val)
         {
-            //println!("callee of a function: {:?} (id: {:?})", &self.callee_fun_val, &self.callee_def_id);
-            //println!("fun summary: {:?}", function_summary);
             self.check_function_preconditions(function_summary);
         } else {
             self.block_visitor.bv.assume_preconditions_of_next_call = false;
@@ -2392,13 +2390,15 @@ impl<'call, 'block, 'analysis, 'compilation, 'tcx, E>
     fn check_function_preconditions(&mut self, function_summary: &Summary) {
         verify!(self.block_visitor.bv.check_for_errors);
         for precondition in &function_summary.preconditions {
-            let mut refined_condition = precondition.condition.refine_parameters_and_paths(
-                &self.actual_args,
-                &None,
-                &self.environment_before_call,
-                &self.block_visitor.bv.current_environment,
-                self.block_visitor.bv.fresh_variable_offset,
-            );
+            let mut refined_condition = precondition
+                .condition
+                .refine_parameters(
+                    &self.actual_args,
+                    &None,
+                    &self.environment_before_call,
+                    self.block_visitor.bv.fresh_variable_offset,
+                )
+                .refine_paths(&self.block_visitor.bv.current_environment, 0);
             if self
                 .block_visitor
                 .bv
@@ -2409,10 +2409,8 @@ impl<'call, 'block, 'analysis, 'compilation, 'tcx, E>
             {
                 refined_condition = refined_condition.refine_with(
                     &self.block_visitor.bv.current_environment.entry_condition,
-                    //&self.block_visitor.bv.smt_solver,
                     0,
                 );
-                //println!("entry cond is known. refined cond is {:?}", refined_condition);
             }
             let (refined_precondition_as_bool, entry_cond_as_bool) = self
                 .block_visitor

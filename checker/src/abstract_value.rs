@@ -14,9 +14,7 @@ use crate::k_limits;
 use crate::octagon_domain::{self, OctagonDomain};
 use crate::path::PathRefinement;
 use crate::path::{Path, PathEnum, PathSelector};
-use crate::smt_solver::{SmtResult, SmtSolver};
 use crate::tag_domain::{Tag, TagDomain};
-use crate::z3_solver::Z3Solver;
 
 use crate::known_names::KnownNames;
 use log_derive::{logfn, logfn_inputs};
@@ -28,9 +26,6 @@ use std::fmt::{Debug, Formatter, Result};
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::rc::Rc;
-
-//todo: without that import Rustc cannot see OctagonsDomain
-use crate::octagons_domain::*;
 
 // See https://github.com/facebookexperimental/MIRAI/blob/master/documentation/AbstractValues.md.
 
@@ -83,6 +78,7 @@ impl PartialEq for AbstractValue {
 
 const ID_ENABLED: bool = true;
 const OD_ENABLED: bool = false;
+const SIMPLIFICATION_HEURISTICS_ENABLED: bool = true;
 
 /// An abstract domain element that all represent the impossible concrete value.
 /// I.e. the corresponding set of possible concrete values is empty.
@@ -326,9 +322,6 @@ impl AbstractValue {
     /// Initializes the optional domains to None.
     #[logfn_inputs(TRACE)]
     pub fn make_from(expression: Expression, expression_size: u64) -> Rc<AbstractValue> {
-        //if expression_size >= 1000 {
-            //println!("expression is {:?} and its size {:?}", expression, expression_size);
-        //}
         if expression_size > k_limits::MAX_EXPRESSION_SIZE {
             if expression_size < u64::MAX {
                 trace!("expression {:?}", expression);
@@ -349,10 +342,14 @@ impl AbstractValue {
 
             let interval = if ID_ENABLED {
                 Some(Rc::new(val.get_as_interval()))
-            } else { None };
+            } else {
+                None
+            };
             let octagon = if OD_ENABLED {
                 Some(Rc::new(val.get_as_octagon()))
-            } else { None };
+            } else {
+                None
+            };
             let tags = val.get_tags();
             Rc::new(AbstractValue {
                 expression: Expression::Variable {
@@ -514,8 +511,7 @@ pub trait AbstractValueTrait: Sized {
         post_env: &Environment,
         fresh: usize,
     ) -> Self;
-    fn refine_with(&self, path_condition: &Self,  depth: usize) -> Self;
-    //fn refine_with(&self, path_condition: &Self, smt_solver: &Z3Solver, depth: usize) -> Self;
+    fn refine_with(&self, path_condition: &Self, depth: usize) -> Self;
     fn transmute(&self, target_type: ExpressionType) -> Self;
     fn try_resolve_as_byte_array(&self, _environment: &Environment) -> Option<Vec<u8>>;
     fn try_resolve_as_ref_to_str(&self, environment: &Environment) -> Option<Rc<str>>;
@@ -1011,7 +1007,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         &self,
         mut consequent: Rc<AbstractValue>,
         mut alternate: Rc<AbstractValue>,
-    ) -> Rc<AbstractValue> { 
+    ) -> Rc<AbstractValue> {
         if self.is_bottom() {
             // If the condition is impossible so is the expression.
             return self.clone();
@@ -2127,7 +2123,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             }
             _ => AbstractValue::make_unary(self.clone(), |operand| Expression::LogicalNot {
                 operand,
-            })},
+            }),
         }
     }
 
@@ -2849,7 +2845,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(FALSE);
             }
         }
-        if OD_ENABLED { 
+        if OD_ENABLED {
             let octagon = &other.get_cached_octagon();
             if octagon.is_contained_in_width_of(&target_type) {
                 return Rc::new(FALSE);
@@ -2958,7 +2954,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 return Rc::new(FALSE);
             }
         }
-        if OD_ENABLED { 
+        if OD_ENABLED {
             let octagon = self.get_cached_octagon().sub(&other.get_cached_octagon());
             if octagon.is_contained_in(&target_type) {
                 return Rc::new(FALSE);
@@ -3189,12 +3185,10 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             return octagon_domain::BOTTOM;
         }
         match &self.expression {
-            Expression::Top => octagon_domain::BOTTOM,
+            Expression::Top => octagon_domain::TOP,
             Expression::CompileTimeConstant(ConstantDomain::I128(val)) => (*val).into(),
             Expression::CompileTimeConstant(ConstantDomain::U128(val)) => (*val).into(),
-            Expression::Add { left, right } => {
-                left.get_as_octagon().add(&right.get_as_octagon())
-            },
+            Expression::Add { left, right } => left.get_as_octagon().add(&right.get_as_octagon()),
             Expression::ConditionalExpression {
                 consequent,
                 alternate,
@@ -3204,31 +3198,25 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 .widen(&alternate.get_as_octagon()),
             Expression::Join { left, right, .. } => {
                 left.get_as_octagon().widen(&right.get_as_octagon())
-            },
-            Expression::Mul { left, right } => left.get_as_octagon().mul(&right.get_as_octagon()),
-            Expression::Neg { operand } => {
-                let octa = operand.get_as_octagon().neg();
-                octa
             }
+            Expression::Mul { left, right } => left.get_as_octagon().mul(&right.get_as_octagon()),
+            Expression::Neg { operand } => operand.get_as_octagon().neg(),
             Expression::Sub { left, right } => left.get_as_octagon().sub(&right.get_as_octagon()),
             Expression::Switch { cases, default, .. } => cases
                 .iter()
                 .fold(default.get_as_octagon(), |acc, (_, result)| {
                     acc.widen(&result.get_as_octagon())
                 }),
-            _ => {
-                octagon_domain::BOTTOM
-            }
-                
+            Expression::Variable { .. } => octagon_domain::TOP,
+            _ => octagon_domain::BOTTOM,
         }
     }
-
 
     /// Constructs an element of the Interval domain for simple expressions.
     #[logfn_inputs(TRACE)]
     fn get_as_interval(&self) -> IntervalDomain {
         match &self.expression {
-            Expression::Top => interval_domain::BOTTOM,
+            Expression::Top => interval_domain::TOP,
             Expression::Add { left, right } => left.get_as_interval().add(&right.get_as_interval()),
             Expression::CompileTimeConstant(ConstantDomain::I128(val)) => (*val).into(),
             Expression::CompileTimeConstant(ConstantDomain::U128(val)) => (*val).into(),
@@ -3251,6 +3239,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                     acc.widen(&result.get_as_interval())
                 }),
             Expression::TaggedExpression { operand, .. } => operand.get_as_interval(),
+            Expression::Variable { .. } => interval_domain::TOP,
             Expression::WidenedJoin { operand, .. } => {
                 let interval = operand.get_as_interval();
                 if interval.is_bottom() {
@@ -3976,13 +3965,11 @@ impl AbstractValueTrait for Rc<AbstractValue> {
     /// of refine_paths, which ensures that paths stay unique (dealing with aliasing is expensive).
     #[logfn_inputs(TRACE)]
     fn refine_with(&self, path_condition: &Self, depth: usize) -> Rc<AbstractValue> {
-    //fn refine_with(&self, path_condition: &Self, smt_solver: &Z3Solver, depth: usize) -> Rc<AbstractValue> {
         if self.is_bottom() || self.is_top() {
             return self.clone();
         };
         //do not use false path conditions to refine things
         checked_precondition!(path_condition.as_bool_if_known().is_none());
-        //println!("refining condition {:?} of expression {:?} with depth {:?}", path_condition, path_condition.expression, depth);
         if depth >= k_limits::MAX_REFINE_DEPTH {
             info!("max refine depth exceeded during refine_with");
             //todo: perhaps this should go away.
@@ -3994,15 +3981,6 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         if path_condition.eq(self) {
             return Rc::new(TRUE);
         }
-
-        
-        //let mut ec = smt_solver.get_as_smt_predicate(&path_condition.expression);
-        //let smt_res = smt_solver.solve_expression(&mut ec);
-
-        //if SmtResult::Satisfiable == smt_res {
-        //};
-
-        //self.addition(1)
 
         // If the path context constrains the self expression to be equal to a constant, just
         // return the constant.
@@ -4018,6 +3996,10 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 }
             }
         }
+        if !SIMPLIFICATION_HEURISTICS_ENABLED {
+            return self.clone();
+        }
+
         // Traverse the self expression, looking for recursive refinement opportunities.
         // Important, keep the traversal as trivial as possible and put optimizations in
         // the transfer functions. Also, keep the transfer functions constant in cost as
