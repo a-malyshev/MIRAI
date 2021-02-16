@@ -54,7 +54,8 @@ pub struct AbstractValue {
     tags: RefCell<Option<Rc<TagDomain>>>,
 
     #[serde(skip)]
-    octagon: RefCell<Option<Rc<OctagonDomain>>>,
+    //TODO remove pub visibility
+    pub octagon: RefCell<Option<Rc<OctagonDomain>>>,
 }
 
 impl Debug for AbstractValue {
@@ -77,7 +78,7 @@ impl PartialEq for AbstractValue {
 }
 
 const ID_ENABLED: bool = true;
-const OD_ENABLED: bool = false;
+const OD_ENABLED: bool = true;
 const SIMPLIFICATION_HEURISTICS_ENABLED: bool = true;
 
 /// An abstract domain element that all represent the impossible concrete value.
@@ -469,6 +470,7 @@ pub trait AbstractValueTrait: Sized {
     fn or(&self, other: Self) -> Self;
     fn record_heap_blocks_and_strings(&self, result: &mut HashSet<Rc<AbstractValue>>);
     fn remainder(&self, other: Self) -> Self;
+    fn extend_od(&self, right_bound: Self) -> Rc<AbstractValue>;
     fn remove_conjuncts_that_depend_on(&self, variables: &HashSet<Rc<Path>>) -> Self;
     fn shift_left(&self, other: Self) -> Self;
     fn shl_overflows(&self, other: Self, target_type: ExpressionType) -> Self;
@@ -1696,18 +1698,22 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             return Rc::new(v1.greater_than(v2).into());
         };
 
+        if OD_ENABLED {
+            println!("++++here. Octagon GreaterThan");
+            println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
+                self, self.get_as_octagon(), other, other.get_as_octagon());
+            if let Some(result) = self
+                .get_cached_octagon()
+                .greater_than(other.get_cached_octagon().as_ref())
+            {
+                println!("!!! Octagon can asnwer the question. \nresult: {:?}", result);
+                return Rc::new(result.into());
+            }
+        }
         if ID_ENABLED {
             if let Some(result) = self
                 .get_cached_interval()
                 .greater_than(other.get_cached_interval().as_ref())
-            {
-                return Rc::new(result.into());
-            }
-        }
-        if OD_ENABLED {
-            if let Some(result) = self
-                .get_cached_octagon()
-                .greater_than(other.get_cached_octagon().as_ref())
             {
                 return Rc::new(result.into());
             }
@@ -2002,19 +2008,25 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.less_or_equal(v2).into());
         };
-        if ID_ENABLED {
-            if let Some(result) = self
-                .get_cached_interval()
-                .less_equal(&other.get_cached_interval())
-            {
-                return Rc::new(result.into());
-            }
-        }
         if OD_ENABLED {
+            println!("++++here. Octagon LE");
+            println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
+                self, self.get_as_octagon(), other, other.get_as_octagon());
             if let Some(result) = self
                 .get_cached_octagon()
                 .less_equal(other.get_cached_octagon().as_ref())
             {
+                println!("!!! Octagon can asnwer the question. \nresult: {:?}", result);
+                return Rc::new(result.into());
+            }
+        }
+        if ID_ENABLED {
+            println!("here. Interval LE");
+            if let Some(result) = self
+                .get_cached_interval()
+                .less_equal(&other.get_cached_interval())
+            {
+                println!("Interval can asnwer the question. \nself: {:?}, other: {:?}\nresult: {:?}", self.get_as_interval(), other, result);
                 return Rc::new(result.into());
             }
         }
@@ -2745,6 +2757,27 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         }
     }
 
+    //TODO do it right
+    #[logfn_inputs(TRACE)]
+    fn extend_od(&self, right_bound: Self) -> Rc<AbstractValue> {
+        let octagon = self.get_cached_octagon().clone();
+        //TODO pass the variable here
+        let octagon = octagon.set_right_bound(99i128);
+
+        Rc::new(AbstractValue {
+            expression: self.expression.clone(),
+            expression_size: 1,
+            interval: self.interval.clone(),
+            // TODO: fix it
+            tags: RefCell::new(None),
+            octagon: RefCell::new(Some(Rc::new(octagon))),
+        })
+    }
+
+    //fn print_od(&self) {
+        //self.octagon 
+
+
     /// Returns an element that is "self << other".
     #[logfn_inputs(TRACE)]
     fn shift_left(&self, other: Rc<AbstractValue>) -> Rc<AbstractValue> {
@@ -3208,6 +3241,47 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                     acc.widen(&result.get_as_octagon())
                 }),
             Expression::Variable { .. } => octagon_domain::TOP,
+            Expression::WidenedJoin { operand, .. } => {
+                let od = operand.get_as_octagon();
+                if od.is_bottom() {
+                    println!("--bottom. Octagon");
+                    return octagon_domain::OctagonDomain::new(1, 111);
+                }
+
+                println!("widened espression: {:?}", operand.expression);
+                if let Expression::Join { left, .. } = &operand.expression {
+                    let left_od = left.get_as_octagon();
+                    if left_od.is_bottom() {
+                        return octagon_domain::BOTTOM;
+                    }
+                    match (left_od.lower_bound(), od.lower_bound()) {
+                        (Some(llb), Some(lb)) if llb == lb => {
+                            // The lower bound is finite and does not change as a result of the fixed
+                            // point computation, so we can keep it, but we remove the upper bound.
+                            let llu = if let Some(llu) = left_od.upper_bound() { llu } else { llb };
+                            let lu = if let Some(lu) = od.upper_bound() { lu } else { lb };
+                            let res = od.remove_upper_bound(std::cmp::max(llu, lu));
+                            println!("Upper. octagon with new bounds: {:?}", res);
+                            return res;
+                        }
+                        _ => (),
+                    }
+                    match (left_od.upper_bound(), od.upper_bound()) {
+                        (Some(lub), Some(ub)) if lub == ub => {
+                            // The upper bound is finite and does not change as a result of the fixed
+                            // point computation, so we can keep it, but we remove the lower bound.
+                            let lll = if let Some(lll) = left_od.lower_bound() { lll } else { lub };
+                            let ll = if let Some(ll) = od.lower_bound() { ll } else { ub };
+                            let res = od.remove_lower_bound(std::cmp::min(lll, ll));
+                            println!("Lower. interval with new bounds: {:?}", res);
+                            return res;
+                        }
+                        _ => (),
+                    }
+                }
+                println!("upper and lower bounds are not stable: 1..77, od is better? {:?}", od);
+                return octagon_domain::OctagonDomain::new(10, 77);
+            },
             _ => octagon_domain::BOTTOM,
         }
     }
@@ -3241,6 +3315,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             Expression::TaggedExpression { operand, .. } => operand.get_as_interval(),
             Expression::Variable { .. } => interval_domain::TOP,
             Expression::WidenedJoin { operand, .. } => {
+                //println!("widened espression: {:?}", self);
                 let interval = operand.get_as_interval();
                 if interval.is_bottom() {
                     return interval;
@@ -3254,7 +3329,11 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                         (Some(llb), Some(lb)) if llb == lb => {
                             // The lower bound is finite and does not change as a result of the fixed
                             // point computation, so we can keep it, but we remove the upper bound.
-                            return interval.remove_upper_bound();
+                            let llu = if let Some(llu) = left_interval.upper_bound() { llu } else { llb };
+                            let lu = if let Some(lu) = interval.upper_bound() { lu } else { lb };
+                            let res = interval.remove_upper_bound(std::cmp::max(llu, lu));
+                            println!("Upper. interval with new bounds: {:?}", res);
+                            return res;
                         }
                         _ => (),
                     }
@@ -3262,7 +3341,11 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                         (Some(lub), Some(ub)) if lub == ub => {
                             // The upper bound is finite and does not change as a result of the fixed
                             // point computation, so we can keep it, but we remove the lower bound.
-                            return interval.remove_lower_bound();
+                            let lll = if let Some(lll) = left_interval.lower_bound() { lll } else { lub };
+                            let ll = if let Some(ll) = interval.lower_bound() { ll } else { ub };
+                            let res = interval.remove_lower_bound(std::cmp::min(lll, ll));
+                            println!("Lower. interval with new bounds: {:?}", res);
+                            return res;
                         }
                         _ => (),
                     }

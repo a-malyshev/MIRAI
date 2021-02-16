@@ -195,11 +195,13 @@ impl IntervalDomain {
     // !([x...y] <= [a...b]) = [a...b] < [x...y] = b < x
     #[logfn_inputs(TRACE)]
     pub fn less_equal(&self, other: &Self) -> Option<bool> {
+        //println!("self: {:?}, other: {:?}", self, other);
         if self.is_bottom() || self.is_top() || other.is_bottom() || other.is_top() {
             None
         } else if self.upper_bound <= other.lower_bound {
             Some(true)
         } else if other.upper_bound < self.lower_bound {
+            //println!("upper: {:?}, lower: {:?}", other.upper_bound, self.lower_bound);
             Some(false)
         } else {
             None
@@ -240,18 +242,20 @@ impl IntervalDomain {
     }
 
     #[logfn_inputs(TRACE)]
-    pub fn remove_lower_bound(&self) -> Self {
+    pub fn remove_lower_bound(&self, lower: i128) -> Self {
         IntervalDomain {
+            //lower_bound: lower,
             lower_bound: TOP.lower_bound,
             upper_bound: self.upper_bound,
         }
     }
 
     #[logfn_inputs(TRACE)]
-    pub fn remove_upper_bound(&self) -> Self {
+    pub fn remove_upper_bound(&self, upper: i128) -> Self {
         IntervalDomain {
             lower_bound: self.lower_bound,
             upper_bound: TOP.upper_bound,
+            //upper_bound: upper,
         }
     }
 

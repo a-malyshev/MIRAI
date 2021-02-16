@@ -2390,15 +2390,13 @@ impl<'call, 'block, 'analysis, 'compilation, 'tcx, E>
     fn check_function_preconditions(&mut self, function_summary: &Summary) {
         verify!(self.block_visitor.bv.check_for_errors);
         for precondition in &function_summary.preconditions {
-            let mut refined_condition = precondition
-                .condition
-                .refine_parameters(
-                    &self.actual_args,
-                    &None,
-                    &self.environment_before_call,
-                    self.block_visitor.bv.fresh_variable_offset,
-                )
-                .refine_paths(&self.block_visitor.bv.current_environment, 0);
+            let mut refined_condition = precondition.condition.refine_parameters_and_paths(
+                &self.actual_args,
+                &None,
+                &self.environment_before_call,
+                &self.block_visitor.bv.current_environment,
+                self.block_visitor.bv.fresh_variable_offset,
+            );
             if self
                 .block_visitor
                 .bv

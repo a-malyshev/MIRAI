@@ -80,7 +80,8 @@ impl From<u128> for OctagonDomain {
 
 impl OctagonDomain {
     pub fn new(left: i128, right: i128) -> Self {
-        let mut dbm = [[std::i128::MAX; 4]; 4];
+        //let mut dbm = [[std::i128::MAX; 4]; 4];
+        let mut dbm = [[0; 4]; 4];
         dbm[0][1] = left;
         dbm[1][0] = right;
         OctagonDomain { dbm }
@@ -210,6 +211,7 @@ impl OctagonDomain {
         } else if self.dbm[1][0] <= other.dbm[0][1] {
             Some(true)
         } else if other.dbm[1][0] < self.dbm[0][1] {
+            println!("yep, that's right");
             Some(false)
         } else {
             None
@@ -253,6 +255,39 @@ impl OctagonDomain {
         let left = self.dbm[0][1].saturating_sub(other.dbm[0][1]);
         let right = self.dbm[1][0].saturating_sub(other.dbm[1][0]);
         OctagonDomain::new(left, right)
+    }
+
+    pub fn set_right_bound(&self, border: i128) -> Self {
+        OctagonDomain::new(self.dbm[0][1], border)
+    }
+
+
+    #[logfn_inputs(TRACE)]
+    pub fn lower_bound(&self) -> Option<i128> {
+        if self.dbm[0][1] == TOP.dbm[0][1] {
+            None
+        } else {
+            Some(self.dbm[0][1])
+        }
+    }
+
+    #[logfn_inputs(TRACE)]
+    pub fn upper_bound(&self) -> Option<i128> {
+        if self.dbm[1][0] == TOP.dbm[1][0] {
+            None
+        } else {
+            Some(self.dbm[1][0])
+        }
+    }
+
+    #[logfn_inputs(TRACE)]
+    pub fn remove_lower_bound(&self, lower: i128) -> Self {
+        OctagonDomain::new(lower, self.dbm[1][0])
+    }
+
+    #[logfn_inputs(TRACE)]
+    pub fn remove_upper_bound(&self, upper: i128) -> Self {
+        OctagonDomain::new(self.dbm[0][1], upper)
     }
 
     #[logfn_inputs(TRACE)]

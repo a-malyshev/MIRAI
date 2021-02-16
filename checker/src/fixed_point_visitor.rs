@@ -10,6 +10,7 @@ use crate::environment::Environment;
 use crate::options::DiagLevel;
 use crate::{abstract_value, k_limits};
 use itertools::Itertools;
+use crate::path::*;
 use log_derive::*;
 use mirai_annotations::*;
 use rpds::{HashTrieMap, HashTrieSet};
@@ -19,10 +20,14 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
 use std::rc::Rc;
 
+use crate::constant_domain::ConstantDomain;
+use crate::expression::{Expression};
+
 pub struct FixedPointVisitor<'fixed, 'analysis, 'compilation, 'tcx, E> {
     pub bv: &'fixed mut BodyVisitor<'analysis, 'compilation, 'tcx, E>,
     already_visited: HashTrieSet<mir::BasicBlock>,
     pub block_indices: Vec<mir::BasicBlock>,
+    guard: Rc<AbstractValue>,
     loop_anchors: HashSet<mir::BasicBlock>,
     dominators: Dominators<mir::BasicBlock>,
     in_state: HashMap<mir::BasicBlock, Environment>,
@@ -64,6 +69,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             already_visited: HashTrieSet::new(),
             bv: body_visitor,
             block_indices,
+            guard: Rc::new(abstract_value::BOTTOM),
             loop_anchors,
             dominators,
             in_state,
@@ -88,17 +94,38 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         }
     }
 
+    fn bind_with_guard(&self, bb: &mir::BasicBlock, variables: &HashSet<Rc<Path>>) {
+        for key in variables.iter() {
+            let val = self.in_state[bb].value_map.get(key);
+            let right_bound = AbstractValue::make_from(
+                Expression::CompileTimeConstant(ConstantDomain::I128(8)),
+                1
+            );
+            let val = if let Some(val) = val {
+                val.extend_od(right_bound)
+            } else { Rc::new(abstract_value::BOTTOM) };
+            println!("var name is {:?}, {:?}", key, val.octagon);
+        }
+    }
+
     /// Visits a single basic block, starting with an in_state that is the join of all of
     /// the out_state values of its predecessors and then updating out_state with the final
     /// current_environment of the block. Also adds the block to the already_visited set.
     #[logfn_inputs(TRACE)]
     fn visit_basic_block(&mut self, bb: mir::BasicBlock, iteration_count: usize) {
         // Merge output states of predecessors of bb
+        println!("--- iter cont: {:?}", iteration_count);
         let mut i_state = if iteration_count == 0 && bb.index() == 0 {
             self.bv.first_environment.clone()
         } else {
             self.get_initial_state_from_predecessors(bb, iteration_count)
         };
+
+        //println!("size of exit cond: {}", self.in_state[&bb].exit_conditions.size());
+        //for (_bb, ex) in self.in_state[&bb].exit_conditions.iter() {
+            //println!("----- exit cond is {:?} for bb: {:?}", ex, _bb);
+        //}
+        //println!("----- 2. exit cond is {:?}", self.out_state[&bb].exit_conditions.get(&bb));
         // Note that iteration_count is zero unless bb is a loop anchor.
         if iteration_count == 2 || iteration_count == 3 {
             // We do not have (and don't want to have) a way to distinguish the value of a widened
@@ -108,21 +135,33 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             // the loop anchor at iteration 1 (i.e. before the loop body was executed the first time)
             // can be loop invariant (and thus apply to all executions of the loop body).
             let loop_variants = self.in_state[&bb].get_loop_variants(&i_state);
+            
+            //println!("state: {:?}", self.in_state[&bb]);
+            // iterate over these variables and bind with Loop Guard
+            //self.guard
+            //self.bind_with_guard(&bb, &loop_variants);
+
             let previous_state = &self.in_state[&bb];
             let invariant_entry_condition = previous_state
                 .entry_condition
                 .remove_conjuncts_that_depend_on(&loop_variants);
+            //println!("exit cond is {:?}", previous_state.entry_condition);
+            //println!("inv entry cond is {:?}", invariant_entry_condition);
             i_state = if iteration_count == 2 {
+                println!("joining...");
                 previous_state.join(i_state)
             } else {
-                previous_state.widen(i_state)
+                println!("widening...");
+                previous_state.widen(i_state, &self.bv.guard)
             };
+            println!("------- num iter: {:?}", i_state.num_iter);
             i_state.entry_condition = invariant_entry_condition;
         } else if iteration_count > 3 {
             // From iteration 3 onwards, the entry condition is not affected by changes in the loop
             // body, so we just stick to the one computed in iteration 3.
+            println!("here we go: {}", iteration_count);
             let invariant_entry_condition = self.in_state[&bb].entry_condition.clone();
-            i_state = self.in_state[&bb].widen(i_state);
+            i_state = self.in_state[&bb].widen(i_state, &self.bv.guard);
             i_state.entry_condition = invariant_entry_condition;
         }
         self.in_state.insert(bb, i_state.clone());
@@ -191,6 +230,57 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         last_block
     }
 
+    fn get_discr_val(&mut self, bb: mir::BasicBlock) -> Rc<AbstractValue> {
+        let mir::BasicBlockData { ref terminator, .. } = &self.bv.mir[bb];
+        if let Some(mir::Terminator { ref kind, .. }) = *terminator {
+            return self.fun(kind, bb);
+        }
+        Rc::new(abstract_value::BOTTOM)
+    }
+
+    fn fun(&mut self, kind: &mir::TerminatorKind<'_>, bb: mir::BasicBlock) -> Rc<AbstractValue> {
+        if let mir::TerminatorKind::SwitchInt { discr, .. } = kind {
+            println!("switch int. Disrc: {:?}", discr);
+            return self
+                .operand_to_path(bb, discr)
+                .unwrap_or_else(|| Rc::new(abstract_value::BOTTOM));
+        }
+        Rc::new(abstract_value::BOTTOM)
+    }
+
+    fn operand_to_path(
+        &mut self,
+        bb: mir::BasicBlock,
+        op: &rustc_middle::mir::Operand<'_>,
+    ) -> Option<Rc<AbstractValue>> {
+        let value_map1 = &self.in_state[&bb].value_map;
+        for v in value_map1.iter() {
+            let path = v.0;
+            if let PathEnum::LocalVariable { ordinal } = path.value {
+                // TODO: how to design it?
+                //let _operand = match op {
+                    //mir::Operand::Copy(_place) => 11,
+                    //mir::Operand::Move(_place) => 22,
+                    //mir::Operand::Constant(constant) => {
+                        //let mir::Constant { .. } = constant.borrow();
+                        ////self.visit_constant(*user_ty, &literal)
+                        //33
+                    //}
+                //};
+
+                //println!("!!!!!!!!!!!!! const is {:?}", ordinal);
+                if ordinal == 3 {
+                    let val = self.out_state[&bb].value_at(&path).unwrap();
+                    //println!("val is {:?}", val);
+                    return Some(val.clone());
+                }
+            }
+            //_ => (), //println!("path is of diff type")
+            //}
+        }
+        None
+    }
+
     /// Visits a loop body. Return true if the out_state computed by this visit is not a subset
     /// of the out_state computed previously. When it is a subset, a fixed point has been reached.
     /// A loop body is all of the blocks that are dominated by the loop anchor.
@@ -209,6 +299,30 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 && self.dominators.is_dominated_by(bb, loop_anchor)
             {
                 last_block = bb;
+
+                //self.guard = self.get_discr_val(bb);
+                //println!("guard: {:?}", self.guard);
+                
+
+                //let cond = self.guard.less_than(AbstractValue::make_from(
+                            //Expression::CompileTimeConstant(ConstantDomain::I128(0)),
+                            //1
+                //));
+                //let cond2 = self.guard.greater_than(AbstractValue::make_from(
+                            //Expression::CompileTimeConstant(ConstantDomain::I128(0)),
+                            //1
+                //));
+                //let cond = AbstractValue::make_from(
+                            //Expression::CompileTimeConstant(ConstantDomain::False),
+                            //1
+                //);
+                //let mut pred = self.bv.smt_solver.get_as_smt_predicate(&cond.expression);
+                //let mut pred2 = self.bv.smt_solver.get_as_smt_predicate(&cond2.expression);
+                //let expr = self.bv.smt_solver.solve_expression(&mut pred);
+                //let expr2 = self.bv.smt_solver.solve_expression(&mut pred2);
+                //println!("discr is {:?}", self.guard);
+                //println!("interval value is {:?}, {:?}", expr, expr2);
+
                 // Visit the next block, or the entire nested loop anchored by it.
                 if bb == loop_anchor {
                     self.visit_basic_block(bb, iteration_count); // join or widen
@@ -226,6 +340,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                     // a value this is not present in self.out_state[last_block].value_at(path), so any block
                     // that used self.out_state[bb] as part of its input state now needs to get reanalyzed.
                     changed = true;
+                    println!("!!!yes, it changed");
                 }
             }
         }

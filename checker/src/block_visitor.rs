@@ -101,6 +101,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         debug!("env {:?}", self.bv.current_environment);
         self.bv.current_location = location;
         let mir::Statement { kind, source_info } = statement;
+        //println!("statement: {:?}, kind: {:?}", statement, kind);
         self.bv.current_span = source_info.span;
         match kind {
             mir::StatementKind::Assign(box (place, rvalue)) => {
@@ -130,8 +131,8 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 // No need to track this data
                 return;
             }
-            PathEnum::Alias { .. } | PathEnum::Offset { .. } | PathEnum::QualifiedPath { .. } => {
-                path = path.refine_paths(&self.bv.current_environment, 0);
+            PathEnum::Computed { .. } | PathEnum::Offset { .. } | PathEnum::QualifiedPath { .. } => {
+                path = path.canonicalize(&self.bv.current_environment);
             }
             _ => {}
         }
@@ -232,6 +233,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         source_info: mir::SourceInfo,
     ) {
         debug!("env {:?}", self.bv.current_environment);
+        //println!("terminator: {:?}, source: {:?}", kind, source_info);
         self.bv.current_location = location;
         self.bv.current_span = source_info.span;
         match kind {
@@ -1683,7 +1685,44 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             mir::BinOp::Eq => left.equals(right),
             mir::BinOp::Ge => left.greater_or_equal(right),
             mir::BinOp::Gt => left.greater_than(right),
-            mir::BinOp::Le => left.less_or_equal(right),
+            mir::BinOp::Le => {
+                //self.bv.guard = Some((path.clone(), right.clone()));
+                //if self.bv.guard.is_none() {
+                    //println!("guard. left {:?}-{:?}, \n----right: {:?}", path, left, right);
+                    //let val = AbstractValue::make_from(
+                                //Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                                //1
+                            //);
+                    //self.bv.guard = Some((path.clone(), right.addition(val)));
+                //}
+                if let Expression::Join { path, .. } = &left.expression {
+                    println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                    let val = AbstractValue::make_from(
+                                Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                                1
+                            );
+                    if self.bv.guard.is_none() {
+                        self.bv.guard = Some((path.clone(), right.addition(val)));
+                    }
+                } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                    let val = AbstractValue::make_from(
+                                Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                                1
+                            );
+                    println!("expresstion is not join. Expr: {:?}", &left.expression);
+                    if self.bv.guard.is_none() {
+                        self.bv.guard = Some((path.clone(), right.addition(val)));
+                    }
+                }
+                //if let mir::Operand::Move(l_place) = left_operand {
+                    //let l_path = self.visit_place(&l_place);
+                    //let mut r_path = None;
+                    //if let mir::Operand::Move(r_place) = right_operand {
+                        //r_path = Some(self.visit_place(&r_place));
+                    //}
+                //}
+                left.less_or_equal(right)
+            },
             mir::BinOp::Lt => left.less_than(right),
             mir::BinOp::Mul => left.multiply(right),
             mir::BinOp::Ne => left.not_equals(right),
