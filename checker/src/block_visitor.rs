@@ -1683,55 +1683,66 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             mir::BinOp::BitXor => left.bit_xor(right),
             mir::BinOp::Div => left.divide(right),
             mir::BinOp::Eq => left.equals(right),
-            mir::BinOp::Ge => left.greater_or_equal(right),
+            mir::BinOp::Ge => {
+                if self.bv.guard.is_none() {
+                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
+                        //println!("===================");
+                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        Some((path.clone(), right.clone(), "GE"))
+                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                        Some((path.clone(), right.clone(), "GE"))
+                    } else { None }
+                }
+                left.greater_or_equal(right)
+            },
             mir::BinOp::Gt => { 
-                if let Expression::Join { path, .. } = &left.expression {
-                    //println!("===================");
-                    //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
-                } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                    //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                if self.bv.guard.is_none() {
+                    let correction = AbstractValue::make_from(
+                        Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                        1
+                    );
+                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
+                        //println!("===================");
+                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        Some((path.clone(), right.addition(correction), "GT"))
+                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                        Some((path.clone(), right.addition(correction), "GT"))
+                    } else { None }
                 }
                 left.greater_than(right)
             },
             mir::BinOp::Le => {
-                //self.bv.guard = Some((path.clone(), right.clone()));
-                //if self.bv.guard.is_none() {
-                    //println!("guard. left {:?}-{:?}, \n----right: {:?}", path, left, right);
-                    //let val = AbstractValue::make_from(
-                                //Expression::CompileTimeConstant(ConstantDomain::I128(1)),
-                                //1
-                            //);
-                    //self.bv.guard = Some((path.clone(), right.addition(val)));
-                //}
-                if let Expression::Join { path, .. } = &left.expression {
-                    //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
-                    //let val = AbstractValue::make_from(
-                                //Expression::CompileTimeConstant(ConstantDomain::I128(1)),
-                                //1
-                            //);
-                    if self.bv.guard.is_none() {
-                        self.bv.guard = Some((path.clone(), right.clone()));
-                    }
-                } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                    let val = AbstractValue::make_from(
-                                Expression::CompileTimeConstant(ConstantDomain::I128(1)),
-                                1
-                            );
-                    //println!("expresstion is not join. Expr: {:?}", &left.expression);
-                    if self.bv.guard.is_none() {
-                        self.bv.guard = Some((path.clone(), right.clone()));
-                    }
+                if self.bv.guard.is_none() {
+                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
+                        //println!("===================");
+                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        Some((path.clone(), right.clone(), "LE"))
+                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                        Some((path.clone(), right.clone(), "LE"))
+                    } else { None }
                 }
-                //if let mir::Operand::Move(l_place) = left_operand {
-                    //let l_path = self.visit_place(&l_place);
-                    //let mut r_path = None;
-                    //if let mir::Operand::Move(r_place) = right_operand {
-                        //r_path = Some(self.visit_place(&r_place));
-                    //}
-                //}
                 left.less_or_equal(right)
             },
-            mir::BinOp::Lt => left.less_than(right),
+            mir::BinOp::Lt => {
+              if self.bv.guard.is_none() {
+                    let correction = AbstractValue::make_from(
+                        Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                        1
+                    );
+                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
+                        //println!("===================");
+                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        Some((path.clone(), right.addition(correction), "LT"))
+                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                        Some((path.clone(), right.addition(correction), "LT"))
+                    } else { None }
+                }
+                left.less_than(right)
+            },
             mir::BinOp::Mul => left.multiply(right),
             mir::BinOp::Ne => left.not_equals(right),
             mir::BinOp::Offset => left.offset(right),

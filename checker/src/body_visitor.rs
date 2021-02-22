@@ -42,7 +42,7 @@ pub struct BodyVisitor<'analysis, 'compilation, 'tcx, E> {
     pub cv: &'analysis mut CrateVisitor<'compilation, 'tcx>,
     pub tcx: TyCtxt<'tcx>,
     pub def_id: DefId,
-    pub guard: Option<(Rc<Path>, Rc<AbstractValue>)>,
+    pub guard: Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>,
     pub mir: &'tcx mir::Body<'tcx>,
     pub smt_solver: &'analysis mut dyn SmtSolver<E>,
     pub buffered_diagnostics: &'analysis mut Vec<DiagnosticBuilder<'compilation>>,

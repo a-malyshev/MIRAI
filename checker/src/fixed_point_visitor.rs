@@ -18,7 +18,8 @@ use rustc_data_structures::graph::dominators::Dominators;
 use rustc_middle::mir;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug, Formatter, Result};
-use std::rc::Rc;
+use std::rc::Rc; 
+use crate::interval_domain::{self, IntervalDomain};
 
 use crate::constant_domain::ConstantDomain;
 use crate::expression::{Expression};
@@ -110,6 +111,51 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         }
     }
 
+    fn check_loop_cond(&self, 
+            x_interval: &IntervalDomain, 
+            threshold_interval: &IntervalDomain, 
+            expr: &'static str,
+        ) -> bool {
+        if expr == "LE" {
+            if let Some(upper_bound) = x_interval.upper_bound() {
+                if upper_bound >= threshold_interval.upper_bound().unwrap() { 
+                    println!("ouch! stopping here");
+                    //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                    //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                    return false;
+                } 
+            }
+        } else if expr == "LT" {
+            if let Some(upper_bound) = x_interval.upper_bound() {
+                if upper_bound >= threshold_interval.upper_bound().unwrap() { 
+                    println!("ouch! stopping here");
+                    //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                    //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                    return false;
+                } 
+            }
+        } else if expr == "GE" {
+            if let Some(lower_bound) = x_interval.lower_bound() {
+                if lower_bound <= threshold_interval.upper_bound().unwrap() { 
+                    println!("ouch! stopping here");
+                    //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                    //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                    return false;
+                } 
+            }
+        } else if expr == "GT" {
+            if let Some(lower_bound) = x_interval.lower_bound() {
+                if lower_bound <= threshold_interval.upper_bound().unwrap() { 
+                    println!("ouch! stopping here");
+                    //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                    //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                    return false;
+                } 
+            }
+        }
+        return true;
+    }
+
     /// Visits a single basic block, starting with an in_state that is the join of all of
     /// the out_state values of its predecessors and then updating out_state with the final
     /// current_environment of the block. Also adds the block to the already_visited set.
@@ -158,7 +204,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
 
         //let mut contin = true;
         if iteration_count >= 2 {
-            if let Some((p, threshold)) = &self.bv.guard {
+            if let Some((p, threshold, expr)) = &self.bv.guard {
                 //let x = self.in_state[&bb].value_map.get(p);
                 let x = self.in_state[&bb].value_map.get(p);
                 println!("--- iteration #{:?}, x value is {:?}", iteration_count, x);
@@ -168,16 +214,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                     //TODO: it will only work for the cases where loop condition is x <= or < some
                     //constant
                     println!("checking loop condition: {:?} and {:?}", x_interval, threshold_interval);
-                    if let Some(upper_bound) = x_interval.upper_bound() {
-                        if upper_bound >= threshold_interval.upper_bound().unwrap() { 
-                            println!("ouch! stopping here");
-                            i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
-                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
-                            self.contin = false;
-                        } else {
-                            println!("almost ouch! false yet");
-                        }
-                    }
+                    self.contin = self.check_loop_cond(&x_interval, &threshold_interval, expr);
                 }
             }
         }

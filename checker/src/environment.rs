@@ -223,7 +223,7 @@ impl Environment {
     /// Returns an environment with a path for every entry in self and other and an associated
     /// value that is the widen of self.value_at(path) and other.value_at(path)
     #[logfn_inputs(TRACE)]
-    pub fn widen(&self, other: Environment, threshold: &Option<(Rc<Path>, Rc<AbstractValue>)>) -> Environment {
+    pub fn widen(&self, other: Environment, threshold: &Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>) -> Environment {
         self.join_or_widen(other, |x, y, p| {
             if let Some(val) = x.get_widened_subexpression(p) {
                 return val;
@@ -281,7 +281,7 @@ impl Environment {
     /// Returns an environment with a path for every entry in self and other and an associated
     /// value that is the join or widen of self.value_at(path) and other.value_at(path).
     #[logfn(TRACE)]
-    fn join_or_widen<F>(&self, other: Environment, join_or_widen: F, threshold: &Option<(Rc<Path>, Rc<AbstractValue>)>) -> Environment
+    fn join_or_widen<F>(&self, other: Environment, join_or_widen: F, threshold: &Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>) -> Environment
     where
         F: Fn(&Rc<AbstractValue>, &Rc<AbstractValue>, &Rc<Path>) -> Rc<AbstractValue>,
     {
