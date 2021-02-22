@@ -1684,7 +1684,15 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             mir::BinOp::Div => left.divide(right),
             mir::BinOp::Eq => left.equals(right),
             mir::BinOp::Ge => left.greater_or_equal(right),
-            mir::BinOp::Gt => left.greater_than(right),
+            mir::BinOp::Gt => { 
+                if let Expression::Join { path, .. } = &left.expression {
+                    //println!("===================");
+                    //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
+                    //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
+                }
+                left.greater_than(right)
+            },
             mir::BinOp::Le => {
                 //self.bv.guard = Some((path.clone(), right.clone()));
                 //if self.bv.guard.is_none() {
@@ -1696,22 +1704,22 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                     //self.bv.guard = Some((path.clone(), right.addition(val)));
                 //}
                 if let Expression::Join { path, .. } = &left.expression {
-                    println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
-                    let val = AbstractValue::make_from(
-                                Expression::CompileTimeConstant(ConstantDomain::I128(1)),
-                                1
-                            );
+                    //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                    //let val = AbstractValue::make_from(
+                                //Expression::CompileTimeConstant(ConstantDomain::I128(1)),
+                                //1
+                            //);
                     if self.bv.guard.is_none() {
-                        self.bv.guard = Some((path.clone(), right.addition(val)));
+                        self.bv.guard = Some((path.clone(), right.clone()));
                     }
                 } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
                     let val = AbstractValue::make_from(
                                 Expression::CompileTimeConstant(ConstantDomain::I128(1)),
                                 1
                             );
-                    println!("expresstion is not join. Expr: {:?}", &left.expression);
+                    //println!("expresstion is not join. Expr: {:?}", &left.expression);
                     if self.bv.guard.is_none() {
-                        self.bv.guard = Some((path.clone(), right.addition(val)));
+                        self.bv.guard = Some((path.clone(), right.clone()));
                     }
                 }
                 //if let mir::Operand::Move(l_place) = left_operand {

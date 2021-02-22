@@ -138,6 +138,7 @@ impl OctagonDomain {
 
     #[logfn_inputs(TRACE)]
     pub fn mul(&self, other: &Self) -> Self {
+        println!("well, value is {:?}", self);
         if self.is_bottom() || other.is_bottom() {
             return BOTTOM.clone();
         }

@@ -28,6 +28,7 @@ pub struct FixedPointVisitor<'fixed, 'analysis, 'compilation, 'tcx, E> {
     already_visited: HashTrieSet<mir::BasicBlock>,
     pub block_indices: Vec<mir::BasicBlock>,
     guard: Rc<AbstractValue>,
+    contin: bool,
     loop_anchors: HashSet<mir::BasicBlock>,
     dominators: Dominators<mir::BasicBlock>,
     in_state: HashMap<mir::BasicBlock, Environment>,
@@ -70,6 +71,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             bv: body_visitor,
             block_indices,
             guard: Rc::new(abstract_value::BOTTOM),
+            contin: true,
             loop_anchors,
             dominators,
             in_state,
@@ -114,12 +116,37 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
     #[logfn_inputs(TRACE)]
     fn visit_basic_block(&mut self, bb: mir::BasicBlock, iteration_count: usize) {
         // Merge output states of predecessors of bb
-        println!("--- iter cont: {:?}", iteration_count);
         let mut i_state = if iteration_count == 0 && bb.index() == 0 {
             self.bv.first_environment.clone()
         } else {
             self.get_initial_state_from_predecessors(bb, iteration_count)
         };
+        //println!("--- iter cont: {:?}", iteration_count);
+        //let map = self.out_state[&bb].value_map.clone();
+        //let discr = self.get_discr_val(bb, &map);
+        //let cond = AbstractValue::make_from(
+            //Expression::CompileTimeConstant(ConstantDomain::False),
+            //1
+        //);
+        //if let Expression::LessOrEqual{left, right} = &discr.expression {
+            //println!("===========yep, good: {:?}", right);
+            //let result = discr.equals(cond);
+            //println!("****** result: {:?}", result);
+            //if Rc::new(abstract_value::TRUE) == result {
+                //println!("ouch! stopping here");
+                //return;
+            //}
+            //let interval = left.get_as_interval();
+            //println!("nope, another try: here is the left side {:?}", interval);
+            //if interval.upper_bound() > right.get_as_interval().upper_bound() {
+                //println!("ouch. v2! stopping here");
+                //return;
+            //}
+
+        //} else {
+            //println!("===========no, bad: {:?}", discr.expression);
+        //}
+   
 
         //println!("size of exit cond: {}", self.in_state[&bb].exit_conditions.size());
         //for (_bb, ex) in self.in_state[&bb].exit_conditions.iter() {
@@ -127,7 +154,37 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         //}
         //println!("----- 2. exit cond is {:?}", self.out_state[&bb].exit_conditions.get(&bb));
         // Note that iteration_count is zero unless bb is a loop anchor.
-        if iteration_count == 2 || iteration_count == 3 {
+
+
+        //let mut contin = true;
+        if iteration_count >= 2 {
+            if let Some((p, threshold)) = &self.bv.guard {
+                //let x = self.in_state[&bb].value_map.get(p);
+                let x = self.in_state[&bb].value_map.get(p);
+                println!("--- iteration #{:?}, x value is {:?}", iteration_count, x);
+                if let Some(x_val) = x {
+                    let x_interval = x_val.get_as_interval();
+                    let threshold_interval = &threshold.get_as_interval();
+                    //TODO: it will only work for the cases where loop condition is x <= or < some
+                    //constant
+                    println!("checking loop condition: {:?} and {:?}", x_interval, threshold_interval);
+                    if let Some(upper_bound) = x_interval.upper_bound() {
+                        if upper_bound >= threshold_interval.upper_bound().unwrap() { 
+                            println!("ouch! stopping here");
+                            i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                            self.contin = false;
+                        } else {
+                            println!("almost ouch! false yet");
+                        }
+                    }
+                }
+            }
+        }
+
+        //if contin && (iteration_count >= 2 && iteration_count <= 8) {
+        if self.contin && iteration_count != 0 && iteration_count != 1 && iteration_count <= 8 {
+
             // We do not have (and don't want to have) a way to distinguish the value of a widened
             // loop variable in one iteration from its value in the previous iteration, so
             // conditions involving loop variables are not referentially transparent
@@ -151,17 +208,21 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 println!("joining...");
                 previous_state.join(i_state)
             } else {
-                println!("widening...");
-                previous_state.widen(i_state, &self.bv.guard)
+                //println!("widening...");
+                println!("joining...");
+                //previous_state.widen(i_state, &self.bv.guard)
+                previous_state.join(i_state)
             };
             println!("------- num iter: {:?}", i_state.num_iter);
             i_state.entry_condition = invariant_entry_condition;
-        } else if iteration_count > 3 {
+        } else if self.contin && iteration_count > 8 {
             // From iteration 3 onwards, the entry condition is not affected by changes in the loop
             // body, so we just stick to the one computed in iteration 3.
-            println!("here we go: {}", iteration_count);
+            println!("********here we go: {}", iteration_count);
             let invariant_entry_condition = self.in_state[&bb].entry_condition.clone();
+            println!("widening...");
             i_state = self.in_state[&bb].widen(i_state, &self.bv.guard);
+            //i_state = self.in_state[&bb].join(i_state);
             i_state.entry_condition = invariant_entry_condition;
         }
         self.in_state.insert(bb, i_state.clone());
@@ -230,55 +291,44 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         last_block
     }
 
-    fn get_discr_val(&mut self, bb: mir::BasicBlock) -> Rc<AbstractValue> {
+    fn get_discr_val<'a>(&mut self, bb: mir::BasicBlock, value_map: &'a HashTrieMap<Rc<Path>, Rc<AbstractValue>>) -> Rc<AbstractValue> {
         let mir::BasicBlockData { ref terminator, .. } = &self.bv.mir[bb];
         if let Some(mir::Terminator { ref kind, .. }) = *terminator {
-            return self.fun(kind, bb);
+            return self.fun(kind, bb, value_map);
         }
         Rc::new(abstract_value::BOTTOM)
     }
 
-    fn fun(&mut self, kind: &mir::TerminatorKind<'_>, bb: mir::BasicBlock) -> Rc<AbstractValue> {
+    fn fun<'a>(&mut self, kind: &mir::TerminatorKind<'tcx>, bb: mir::BasicBlock, value_map: &'a HashTrieMap<Rc<Path>, Rc<AbstractValue>>) -> Rc<AbstractValue> {
         if let mir::TerminatorKind::SwitchInt { discr, .. } = kind {
-            println!("switch int. Disrc: {:?}", discr);
-            return self
-                .operand_to_path(bb, discr)
-                .unwrap_or_else(|| Rc::new(abstract_value::BOTTOM));
+            let val = self.operand_to_path(bb, discr, value_map);
+            println!("switch int. Disrc: {:?}, kind: {:?}, abstr.val: {:?}", discr, kind, val);
+            return val.unwrap_or(&Rc::new(abstract_value::BOTTOM)).clone();
         }
         Rc::new(abstract_value::BOTTOM)
     }
 
-    fn operand_to_path(
+    fn operand_to_path<'a>(
         &mut self,
         bb: mir::BasicBlock,
-        op: &rustc_middle::mir::Operand<'_>,
-    ) -> Option<Rc<AbstractValue>> {
-        let value_map1 = &self.in_state[&bb].value_map;
-        for v in value_map1.iter() {
-            let path = v.0;
-            if let PathEnum::LocalVariable { ordinal } = path.value {
-                // TODO: how to design it?
-                //let _operand = match op {
-                    //mir::Operand::Copy(_place) => 11,
-                    //mir::Operand::Move(_place) => 22,
-                    //mir::Operand::Constant(constant) => {
-                        //let mir::Constant { .. } = constant.borrow();
-                        ////self.visit_constant(*user_ty, &literal)
-                        //33
-                    //}
-                //};
-
-                //println!("!!!!!!!!!!!!! const is {:?}", ordinal);
-                if ordinal == 3 {
-                    let val = self.out_state[&bb].value_at(&path).unwrap();
-                    //println!("val is {:?}", val);
-                    return Some(val.clone());
-                }
-            }
-            //_ => (), //println!("path is of diff type")
-            //}
-        }
-        None
+        op: &rustc_middle::mir::Operand<'tcx>,
+        value_map: &'a HashTrieMap<Rc<Path>, Rc<AbstractValue>>
+    ) -> Option<&'a Rc<AbstractValue>> {
+        let mut block_visitor = BlockVisitor::new(self.bv);
+        //for v in value_map1.iter() {
+            //let path = v.0;
+        //if let PathEnum::LocalVariable { ordinal } = path.value {
+            // TODO: how to design it?
+        match op {
+            mir::Operand::Copy(place) 
+            | mir::Operand::Move(place) => {
+                let p = block_visitor.visit_place(&place);
+                println!("operand is {:?}, place: {:?}, path: {:?}", op, place, p);
+                let val = value_map.get(&p);
+                return val.clone();
+            }, 
+            _ => return None,
+        };
     }
 
     /// Visits a loop body. Return true if the out_state computed by this visit is not a subset
@@ -335,12 +385,13 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 // Check for a fixed point, once two iterations with widened variables were executed.
                 if iteration_count > 3
                     && !self.out_state[&last_block].subset(&old_state[&last_block])
+                    && self.contin
                 {
                     // There is some path for which self.bv.current_environment.value_at(path) includes
                     // a value this is not present in self.out_state[last_block].value_at(path), so any block
                     // that used self.out_state[bb] as part of its input state now needs to get reanalyzed.
                     changed = true;
-                    println!("!!!yes, it changed");
+                    //println!("!!!yes, it changed");
                 }
             }
         }

@@ -262,6 +262,7 @@ impl IntervalDomain {
     // [x...y] * [a...b] = [x*a...y*b]
     #[logfn_inputs(TRACE)]
     pub fn mul(&self, other: &Self) -> Self {
+        println!("interval well, value is {:?}", self);
         if self.is_bottom() || other.is_bottom() {
             return BOTTOM.clone();
         }

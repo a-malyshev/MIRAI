@@ -1668,18 +1668,18 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.greater_or_equal(v2).into());
         };
-        if ID_ENABLED {
-            if let Some(result) = self
-                .get_cached_interval()
-                .greater_or_equal(&other.get_cached_interval())
-            {
-                return Rc::new(result.into());
-            }
-        }
         if OD_ENABLED {
             if let Some(result) = self
                 .get_cached_octagon()
                 .greater_or_equal(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
+        }
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .greater_or_equal(&other.get_cached_interval())
             {
                 return Rc::new(result.into());
             }
@@ -1700,8 +1700,10 @@ impl AbstractValueTrait for Rc<AbstractValue> {
 
         if OD_ENABLED {
             println!("++++here. Octagon GreaterThan");
-            println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
-                self, self.get_as_octagon(), other, other.get_as_octagon());
+            //println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
+                //self, self.get_as_octagon(), other, other.get_as_octagon());
+            println!("self: {:?},\nother: {:?}", 
+                self.get_as_octagon(), other.get_as_octagon());
             if let Some(result) = self
                 .get_cached_octagon()
                 .greater_than(other.get_cached_octagon().as_ref())
@@ -2010,8 +2012,10 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         };
         if OD_ENABLED {
             println!("++++here. Octagon LE");
-            println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
-                self, self.get_as_octagon(), other, other.get_as_octagon());
+            //println!("self: {:?}\nas Octagon: {:?},\nother: {:?}\nas Octagon: {:?}", 
+                //self, self.get_as_octagon(), other, other.get_as_octagon());
+            println!("as Octagon: {:?},\nother: {:?}", 
+                self.get_as_octagon(),other.get_as_octagon());
             if let Some(result) = self
                 .get_cached_octagon()
                 .less_equal(other.get_cached_octagon().as_ref())
@@ -2044,18 +2048,18 @@ impl AbstractValueTrait for Rc<AbstractValue> {
         {
             return Rc::new(v1.less_than(v2).into());
         };
-        if ID_ENABLED {
-            if let Some(result) = self
-                .get_cached_interval()
-                .less_than(other.get_cached_interval().as_ref())
-            {
-                return Rc::new(result.into());
-            }
-        }
         if OD_ENABLED {
             if let Some(result) = self
                 .get_cached_octagon()
                 .less_than(other.get_cached_octagon().as_ref())
+            {
+                return Rc::new(result.into());
+            }
+        }
+        if ID_ENABLED {
+            if let Some(result) = self
+                .get_cached_interval()
+                .less_than(other.get_cached_interval().as_ref())
             {
                 return Rc::new(result.into());
             }
@@ -3215,6 +3219,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
     #[logfn_inputs(TRACE)]
     fn get_as_octagon(&self) -> OctagonDomain {
         if self.expression_size > k_limits::MAX_EXPRESSION_SIZE / 10 {
+            println!("expression is too big: {:?}", self.expression_size);
             return octagon_domain::BOTTOM;
         }
         match &self.expression {
@@ -3230,6 +3235,7 @@ impl AbstractValueTrait for Rc<AbstractValue> {
                 .get_as_octagon()
                 .widen(&alternate.get_as_octagon()),
             Expression::Join { left, right, .. } => {
+                //println!("expression is JOIN");
                 left.get_as_octagon().widen(&right.get_as_octagon())
             }
             Expression::Mul { left, right } => left.get_as_octagon().mul(&right.get_as_octagon()),
