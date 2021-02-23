@@ -367,7 +367,7 @@ impl Environment {
                     } else {
                         //let t = if y_delta.clone() == 0 { 77 } else { num * y_delta.clone() };
                         t = Some(AbstractValue::make_from(
-                            Expression::CompileTimeConstant(ConstantDomain::I128((num_iter.unwrap() * y_delta.clone())+1)),
+                            Expression::CompileTimeConstant(ConstantDomain::I128((num_iter.unwrap() * y_delta.clone())+2)),
                             1
                         ));
                         println!("calculated threshold is {:?} for {:?}", t, path);

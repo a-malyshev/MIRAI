@@ -202,7 +202,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         // Note that iteration_count is zero unless bb is a loop anchor.
 
 
-        //let mut contin = true;
+        let mut contin = true;
         if iteration_count >= 2 {
             if let Some((p, threshold, expr)) = &self.bv.guard {
                 //let x = self.in_state[&bb].value_map.get(p);
@@ -241,14 +241,15 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 .remove_conjuncts_that_depend_on(&loop_variants);
             //println!("exit cond is {:?}", previous_state.entry_condition);
             //println!("inv entry cond is {:?}", invariant_entry_condition);
-            i_state = if iteration_count == 2 {
+            i_state = if iteration_count <= 7 {
                 println!("joining...");
                 previous_state.join(i_state)
             } else {
-                //println!("widening...");
-                println!("joining...");
-                //previous_state.widen(i_state, &self.bv.guard)
-                previous_state.join(i_state)
+                println!("widening...");
+                //println!("joining...");
+                //self.contin = false;
+                previous_state.widen(i_state, &self.bv.guard)
+                //previous_state.join(i_state)
             };
             println!("------- num iter: {:?}", i_state.num_iter);
             i_state.entry_condition = invariant_entry_condition;
@@ -261,6 +262,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             i_state = self.in_state[&bb].widen(i_state, &self.bv.guard);
             //i_state = self.in_state[&bb].join(i_state);
             i_state.entry_condition = invariant_entry_condition;
+            //self.contin = false;
         }
         self.in_state.insert(bb, i_state.clone());
         self.bv.current_environment = i_state;

@@ -1704,7 +1704,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                     );
                     self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
                         //println!("===================");
-                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        //println!("guard. left {:?}-{:?} \nright: {:?}", path, left, right);
                         Some((path.clone(), right.addition(correction), "GT"))
                     } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
                         //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
