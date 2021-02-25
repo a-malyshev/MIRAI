@@ -242,7 +242,11 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 discr,
                 switch_ty,
                 targets,
-            } => self.visit_switch_int(discr, switch_ty, targets),
+            } => { 
+                //let operand = self.visit_operand(discr);
+                //println!("##### discr is {:?}, value is {:?}", discr, operand);
+                self.visit_switch_int(discr, switch_ty, targets)
+            },
             mir::TerminatorKind::Resume => self.visit_resume(),
             mir::TerminatorKind::Abort => self.visit_abort(),
             mir::TerminatorKind::Return => self.visit_return(),
@@ -349,6 +353,56 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 .exit_conditions
                 .get(&target)
                 .cloned();
+            //if let Expression::CompileTimeConstant(cond_val) = &default_exit_condition.expression {
+                //if self.bv.guard.is_some() { 
+                    //if let ConstantDomain::True = cond_val { 
+                        //println!("++++++++++\ncond_val: {:?}\ndefault exit.cond: {:?}"
+                            //, cond_val, default_exit_condition);
+                        //self.bv.stop_cond = true; 
+                    //}
+                //}
+            //}
+            if let  Expression::LessOrEqual { left, right } = &default_exit_condition.expression {
+                //if self.bv.guard.is_none() {
+                if let Expression::Join { .. } = &left.expression {
+                        println!("****************");
+                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
+                            //path, left, right, left.expression, right.expression);
+                        let left_interval = left.get_as_interval();
+                        let right_interval = right.get_as_interval();
+                        println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
+                        if let Some(upper_bound) = left_interval.upper_bound() {
+                            if upper_bound >= right_interval.lower_bound().unwrap() { 
+                                println!("ow, stopping here");
+                                //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                                //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                                self.bv.stop_cond = true;
+                            } 
+                        }
+
+                }
+            }
+
+            if let  Expression::GreaterOrEqual { left, right } = &default_exit_condition.expression {
+                //if self.bv.guard.is_none() {
+                if let Expression::Join { .. } = &left.expression {
+                        println!("****************");
+                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
+                            //path, left, right, left.expression, right.expression);
+                        let left_interval = left.get_as_interval();
+                        let right_interval = right.get_as_interval();
+                        println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
+                        if let Some(lower_bound) = left_interval.lower_bound() {
+                            if lower_bound <= right_interval.upper_bound().unwrap() { 
+                                println!("ow, stopping here");
+                                //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                                //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                                self.bv.stop_cond = true;
+                            } 
+                        }
+
+                }
+            }
             if let Some(existing_exit_condition) = existing_exit_condition {
                 // There are multiple branches with the same target.
                 // In this case, we use the disjunction of the branch conditions as the exit condition.
@@ -1717,7 +1771,9 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 if self.bv.guard.is_none() {
                     self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
                         //println!("===================");
-                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
+                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
+                            //path, left, right, left.expression, right.expression);
+                        //println!("left expr as interval: {:?}", left.get_as_interval());
                         Some((path.clone(), right.clone(), "LE"))
                     } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
                         //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);

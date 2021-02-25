@@ -202,25 +202,32 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         // Note that iteration_count is zero unless bb is a loop anchor.
 
 
-        let mut contin = true;
+        //let mut contin = true;
         if iteration_count >= 2 {
-            if let Some((p, threshold, expr)) = &self.bv.guard {
-                //let x = self.in_state[&bb].value_map.get(p);
-                let x = self.in_state[&bb].value_map.get(p);
-                println!("--- iteration #{:?}, x value is {:?}", iteration_count, x);
-                if let Some(x_val) = x {
-                    let x_interval = x_val.get_as_interval();
-                    let threshold_interval = &threshold.get_as_interval();
-                    //TODO: it will only work for the cases where loop condition is x <= or < some
-                    //constant
-                    println!("checking loop condition: {:?} and {:?}", x_interval, threshold_interval);
-                    self.contin = self.check_loop_cond(&x_interval, &threshold_interval, expr);
-                }
+            if self.bv.stop_cond { 
+                //self.bv.stop_cond = false;
+                self.contin = false;
+                println!("-------------------\n iteration #{:?}, contin: {}", iteration_count, self.contin);
+            } else {
+                //if let Some((p, threshold, expr)) = &self.bv.guard {
+                    ////let x = self.in_state[&bb].value_map.get(p);
+                    //let x = self.in_state[&bb].value_map.get(p);
+                    //if let Some(x_val) = x {
+                        //let x_interval = x_val.get_as_interval();
+                        //let threshold_interval = &threshold.get_as_interval();
+                        ////TODO: it will only work for the cases where loop condition is x <= or < some
+                        ////constant
+                        ////if !self.bv.stop_cond {
+                            //println!("checking loop condition: {:?} and {:?}", x_interval, threshold_interval);
+                            //self.contin = self.check_loop_cond(&x_interval, &threshold_interval, expr);
+                        ////}
+                    //}
+                //}
             }
         }
 
         //if contin && (iteration_count >= 2 && iteration_count <= 8) {
-        if self.contin && iteration_count != 0 && iteration_count != 1 && iteration_count <= 8 {
+        if self.contin && iteration_count != 0 && iteration_count != 1 && iteration_count <= 11 {
 
             // We do not have (and don't want to have) a way to distinguish the value of a widened
             // loop variable in one iteration from its value in the previous iteration, so
@@ -241,7 +248,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 .remove_conjuncts_that_depend_on(&loop_variants);
             //println!("exit cond is {:?}", previous_state.entry_condition);
             //println!("inv entry cond is {:?}", invariant_entry_condition);
-            i_state = if iteration_count <= 7 {
+            i_state = if iteration_count <= 10 {
                 println!("joining...");
                 previous_state.join(i_state)
             } else {
@@ -253,7 +260,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             };
             println!("------- num iter: {:?}", i_state.num_iter);
             i_state.entry_condition = invariant_entry_condition;
-        } else if self.contin && iteration_count > 8 {
+        } else if self.contin && iteration_count > 11 {
             // From iteration 3 onwards, the entry condition is not affected by changes in the loop
             // body, so we just stick to the one computed in iteration 3.
             println!("********here we go: {}", iteration_count);
@@ -264,6 +271,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             i_state.entry_condition = invariant_entry_condition;
             //self.contin = false;
         }
+
         self.in_state.insert(bb, i_state.clone());
         self.bv.current_environment = i_state;
         let mut block_visitor = BlockVisitor::new(self.bv);
@@ -271,6 +279,12 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         self.out_state
             .insert(bb, self.bv.current_environment.clone());
         self.already_visited.insert_mut(bb);
+        //if iteration_count >= 2 {
+            //if self.bv.stop_cond { 
+                ////self.bv.stop_cond = false;
+                //self.contin = false;
+            //}
+        //}
     }
 
     /// Repeatedly evaluate the loop body starting at loop_anchor until widening
@@ -284,7 +298,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         let mut last_block = loop_anchor;
         // Iterate at least 4 times so that widening kicks in for loop variables and at least
         // two iterations were performed starting with widened variables.
-        while iteration_count <= 4 || changed {
+        while (iteration_count <= 10 || changed) && self.contin {
             self.already_visited = saved_already_visited.clone();
             self.bv.fresh_variable_offset = saved_fresh_variable_offset;
             let result = self.visit_loop_body(loop_anchor, iteration_count);
@@ -422,8 +436,9 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
                 }
 
                 // Check for a fixed point, once two iterations with widened variables were executed.
-                if iteration_count > 3
-                    && !self.out_state[&last_block].subset(&old_state[&last_block])
+                if 
+                    iteration_count > 2 &&
+                    !self.out_state[&last_block].subset(&old_state[&last_block])
                     && self.contin
                 {
                     // There is some path for which self.bv.current_environment.value_at(path) includes
