@@ -95,13 +95,33 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         }
     }
 
+    //pub fn update_octagons(&self, i_state: &mut Environment) {
+        
+        //let mut value_map = &i_state.value_map;
+        ////update octagon for each variable in the value map
+        //if let Some((x_path, _, _)) = &self.bv.guard {
+            ////1. get value of x
+            //if let Some(x_val) = value_map.get(x_path) {
+            ////2. convert it to octagon
+                //let x_octagon = x_val.get_as_octagon();
+                //println!("----------updating octagons-----------\nx octagon: {:?}", x_octagon);
+                //for (_, val) in value_map.iter() {
+                    ////for each value add x to the octagon rep
+                    ////val.update_dbm(x_octagon);
+
+                    ////save octagon rep
+
+                //}
+            //}
+        //}
+    //}
+
     /// Calls a specialized visitor for each kind of statement.
     #[logfn_inputs(DEBUG)]
     fn visit_statement(&mut self, location: mir::Location, statement: &mir::Statement<'tcx>) {
         debug!("env {:?}", self.bv.current_environment);
         self.bv.current_location = location;
         let mir::Statement { kind, source_info } = statement;
-        //println!("statement: {:?}, kind: {:?}", statement, kind);
         self.bv.current_span = source_info.span;
         match kind {
             mir::StatementKind::Assign(box (place, rvalue)) => {
@@ -233,7 +253,6 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         source_info: mir::SourceInfo,
     ) {
         debug!("env {:?}", self.bv.current_environment);
-        //println!("terminator: {:?}, source: {:?}", kind, source_info);
         self.bv.current_location = location;
         self.bv.current_span = source_info.span;
         match kind {
@@ -362,47 +381,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                     //}
                 //}
             //}
-            if let  Expression::LessOrEqual { left, right } = &default_exit_condition.expression {
-                //if self.bv.guard.is_none() {
-                if let Expression::Join { .. } = &left.expression {
-                        println!("****************");
-                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
-                            //path, left, right, left.expression, right.expression);
-                        let left_interval = left.get_as_interval();
-                        let right_interval = right.get_as_interval();
-                        println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
-                        if let Some(upper_bound) = left_interval.upper_bound() {
-                            if upper_bound >= right_interval.lower_bound().unwrap() { 
-                                println!("ow, stopping here");
-                                //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
-                                //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
-                                self.bv.stop_cond = true;
-                            } 
-                        }
-
-                }
-            }
-
-            if let  Expression::GreaterOrEqual { left, right } = &default_exit_condition.expression {
-                //if self.bv.guard.is_none() {
-                if let Expression::Join { .. } = &left.expression {
-                        println!("****************");
-                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
-                            //path, left, right, left.expression, right.expression);
-                        let left_interval = left.get_as_interval();
-                        let right_interval = right.get_as_interval();
-                        println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
-                        if let Some(lower_bound) = left_interval.lower_bound() {
-                            if lower_bound <= right_interval.upper_bound().unwrap() { 
-                                println!("ow, stopping here");
-                                //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
-                                //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
-                                self.bv.stop_cond = true;
-                            } 
-                        }
-
-                }
-            }
+            self.check_exit_condition(&default_exit_condition);
             if let Some(existing_exit_condition) = existing_exit_condition {
                 // There are multiple branches with the same target.
                 // In this case, we use the disjunction of the branch conditions as the exit condition.
@@ -421,6 +400,51 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             .current_environment
             .exit_conditions
             .insert_mut(targets.otherwise(), default_exit_condition);
+    }
+
+    fn check_exit_condition(&mut self, default_exit_condition: &Rc<AbstractValue>) {
+        if let  Expression::LessOrEqual { left, right } = &default_exit_condition.expression {
+            //if self.bv.guard.is_none() {
+            if let Expression::Join { .. } = &left.expression {
+                    println!("****************");
+                    //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
+                        //path, left, right, left.expression, right.expression);
+                    let left_interval = left.get_as_interval();
+                    let right_interval = right.get_as_interval();
+                    println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
+                    if let Some(upper_bound) = left_interval.upper_bound() {
+                        if upper_bound >= right_interval.lower_bound().unwrap() { 
+                            println!("ow, stopping here");
+                            //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                            self.bv.stop_cond = true;
+                        } 
+                    }
+
+            }
+        }
+
+        if let  Expression::GreaterOrEqual { left, right } = &default_exit_condition.expression {
+            //if self.bv.guard.is_none() {
+            if let Expression::Join { .. } = &left.expression {
+                    println!("****************");
+                    //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
+                        //path, left, right, left.expression, right.expression);
+                    let left_interval = left.get_as_interval();
+                    let right_interval = right.get_as_interval();
+                    println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
+                    //TODO: pass a function as an argument
+                    if let Some(lower_bound) = left_interval.lower_bound() {
+                        if lower_bound <= right_interval.upper_bound().unwrap() { 
+                            println!("ow, stopping here");
+                            //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
+                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
+                            self.bv.stop_cond = true;
+                        } 
+                    }
+
+            }
+        }
     }
 
     /// Indicates that the landing pad is finished and unwinding should

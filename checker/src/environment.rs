@@ -62,6 +62,14 @@ impl Environment {
         self.value_map.get(path)
     }
 
+    //pub fn update_octagon(&mut self, path: &Rc<Path>) {
+        //let x = self.value_at(path);
+        //for (p, val1) in self.value_map.iter() {
+            //let updated_val = val1.update_dbm(&x);
+            ////self.value_map.insert_mut(p, updated_val);
+        //}
+    //}
+
     /// Updates the path to value map so that the given path now points to the given value.
     #[logfn_inputs(TRACE)]
     pub fn update_value_at(&mut self, path: Rc<Path>, value: Rc<AbstractValue>) {
@@ -288,7 +296,6 @@ impl Environment {
         let value_map1 = &self.value_map;
         let value_map2 = &other.value_map;
         let mut delta_map = if other.delta_map.is_empty() { self.delta_map.clone() } else { other.delta_map.clone() };
-        //println!("num iter self: {:?}, num iter other: {:?}", self.num_iter, other.num_iter);
         let mut num_iter = if other.num_iter.is_none() { self.num_iter } else { other.num_iter };
         let mut value_map: HashTrieMap<Rc<Path>, Rc<AbstractValue>> = HashTrieMap::default();
         for (path, val1) in value_map1.iter() {
@@ -310,15 +317,11 @@ impl Environment {
                         }
                         println!("old delta: {:?}, updated: {:?} for {:?}", copy, value, p);
                     }
-                        //println!("is delta map empty? {:?}", delta_map.keys());
                     //}
                     let y_delta = delta_map.get(&p).unwrap_or_else(|| {
                         println!("didn't find value for {:?}", p);
                         &0i128
                     });
-                    if let Expression::HeapBlockLayout { length, .. } = &val2.expression {
-                        println!("^^^^^^heap: {:?}", length);
-                    }
                     println!("y delta is {:?} for {:?}", y_delta, p);
                     //let t = if let Some((_, v)) = threshold { 
                         //println!("threshold is v: {:?}", v);
@@ -347,8 +350,8 @@ impl Environment {
                         let x_diff = threshold.as_ref().unwrap().1.subtract(x.clone());
                         println!("x diff: {:?} (as interval: {:?})", x_diff, x_diff.get_as_interval());
                         // get delta for x
-                        //let x_delta = delta_map.get(&x_path);
-                        let x_delta = 1;
+                        let x_delta = delta_map.get(&x_path).unwrap_or(&1);
+                        //let x_delta = 1;
                         // divide diff by delta as num of iterations 
                         num_iter = if let Some(num) = x_diff.get_as_interval().upper_bound() {
                             Some(num / x_delta)
@@ -359,13 +362,12 @@ impl Environment {
                         println!("path: {:?}", &x_path);
                     }
 
-                    //calc threshold
+                    //calculate threshold
                     let t: Option<Rc<AbstractValue>>;
                     if let None = threshold {
                         t = Some(val2.clone());
                         println!("joined value is {:?} for {:?}", t, path);
                     } else {
-                        //let t = if y_delta.clone() == 0 { 77 } else { num * y_delta.clone() };
                         t = Some(AbstractValue::make_from(
                             Expression::CompileTimeConstant(ConstantDomain::I128((num_iter.unwrap() * y_delta.clone())+2)),
                             1
@@ -408,6 +410,8 @@ impl Environment {
                 };
             }
         }
+
+
         Environment {
             value_map,
             entry_condition: abstract_value::TRUE.into(),

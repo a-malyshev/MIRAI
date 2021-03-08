@@ -503,6 +503,8 @@ pub trait AbstractValueTrait: Sized {
     fn get_cached_tags(&self) -> Rc<TagDomain>;
     fn get_as_octagon(&self) -> OctagonDomain;
     fn get_cached_octagon(&self) -> Rc<OctagonDomain>;
+    //fn update_dbm(&mut self, x_val: &Option<&Rc<AbstractValue>>); 
+    //fn update_bounds(octagon: &mut OctagonDomain, y_val: &IntervalDomain, x_val: &IntervalDomain); 
     fn get_tags(&self) -> TagDomain;
     fn get_widened_subexpression(&self, path: &Rc<Path>) -> Option<Rc<AbstractValue>>;
     fn refine_parameters_and_paths(
@@ -3291,6 +3293,32 @@ impl AbstractValueTrait for Rc<AbstractValue> {
             _ => octagon_domain::BOTTOM,
         }
     }
+    
+    //fn update_dbm(&mut self, x_val: &Option<&Rc<AbstractValue>>) {
+        //let y_val = self;
+        //let mut octagon = octagon_domain::TOP;
+        //if let Some(val) = x_val {
+            //octagon.update_bounds(&y_val.get_as_interval(), &val.get_as_interval());
+        //} else {
+            //octagon.update_non_relational_bounds(&y_val.get_as_interval());
+        //}
+
+        //self.octagon = RefCell::new(Some(Rc::new(octagon)));
+    //}
+
+   //fn update_bounds(octagon: &mut OctagonDomain, y_interval: &IntervalDomain, x_interval: &IntervalDomain) {
+        //let y_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
+        //let y_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
+        //let x_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
+        //let x_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
+        //octagon.dbm[0][1] = 2 * y_upper;
+        //octagon.dbm[1][0] = -2 * y_lower;
+        //self.dbm[0][2] = y_upper - x_upper;
+        //self.dbm[0][3] = y_upper + x_upper;
+        //self.dbm[2][0] = -y_lower + x_lower;
+        //self.dbm[3][0] = y_lower + x_lower;
+    //}
+
 
     /// Constructs an element of the Interval domain for simple expressions.
     #[logfn_inputs(TRACE)]
