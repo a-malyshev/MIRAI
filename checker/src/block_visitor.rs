@@ -95,27 +95,6 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         }
     }
 
-    //pub fn update_octagons(&self, i_state: &mut Environment) {
-        
-        //let mut value_map = &i_state.value_map;
-        ////update octagon for each variable in the value map
-        //if let Some((x_path, _, _)) = &self.bv.guard {
-            ////1. get value of x
-            //if let Some(x_val) = value_map.get(x_path) {
-            ////2. convert it to octagon
-                //let x_octagon = x_val.get_as_octagon();
-                //println!("----------updating octagons-----------\nx octagon: {:?}", x_octagon);
-                //for (_, val) in value_map.iter() {
-                    ////for each value add x to the octagon rep
-                    ////val.update_dbm(x_octagon);
-
-                    ////save octagon rep
-
-                //}
-            //}
-        //}
-    //}
-
     /// Calls a specialized visitor for each kind of statement.
     #[logfn_inputs(DEBUG)]
     fn visit_statement(&mut self, location: mir::Location, statement: &mir::Statement<'tcx>) {
@@ -262,8 +241,6 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 switch_ty,
                 targets,
             } => { 
-                //let operand = self.visit_operand(discr);
-                //println!("##### discr is {:?}, value is {:?}", discr, operand);
                 self.visit_switch_int(discr, switch_ty, targets)
             },
             mir::TerminatorKind::Resume => self.visit_resume(),
@@ -359,7 +336,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
         for (i, target) in targets.iter() {
             let val = self.get_int_const_val(i, switch_ty);
             let cond = discr.equals(val);
-            let exit_condition = self
+            let mut exit_condition = self
                 .bv
                 .current_environment
                 .entry_condition
@@ -372,16 +349,7 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
                 .exit_conditions
                 .get(&target)
                 .cloned();
-            //if let Expression::CompileTimeConstant(cond_val) = &default_exit_condition.expression {
-                //if self.bv.guard.is_some() { 
-                    //if let ConstantDomain::True = cond_val { 
-                        //println!("++++++++++\ncond_val: {:?}\ndefault exit.cond: {:?}"
-                            //, cond_val, default_exit_condition);
-                        //self.bv.stop_cond = true; 
-                    //}
-                //}
-            //}
-            self.check_exit_condition(&default_exit_condition);
+            exit_condition = self.check_exit_condition(&default_exit_condition, &exit_condition);
             if let Some(existing_exit_condition) = existing_exit_condition {
                 // There are multiple branches with the same target.
                 // In this case, we use the disjunction of the branch conditions as the exit condition.
@@ -402,49 +370,33 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             .insert_mut(targets.otherwise(), default_exit_condition);
     }
 
-    fn check_exit_condition(&mut self, default_exit_condition: &Rc<AbstractValue>) {
+    fn check_exit_condition(&mut self, default_exit_condition: &Rc<AbstractValue>, exit_condition: &Rc<AbstractValue>) 
+        -> Rc<AbstractValue> {
         if let  Expression::LessOrEqual { left, right } = &default_exit_condition.expression {
-            //if self.bv.guard.is_none() {
             if let Expression::Join { .. } = &left.expression {
-                    println!("****************");
-                    //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
-                        //path, left, right, left.expression, right.expression);
                     let left_interval = left.get_as_interval();
                     let right_interval = right.get_as_interval();
-                    println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
                     if let Some(upper_bound) = left_interval.upper_bound() {
                         if upper_bound >= right_interval.lower_bound().unwrap() { 
-                            println!("ow, stopping here");
-                            //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
-                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
                             self.bv.stop_cond = true;
                         } 
                     }
 
             }
         }
-
         if let  Expression::GreaterOrEqual { left, right } = &default_exit_condition.expression {
-            //if self.bv.guard.is_none() {
             if let Expression::Join { .. } = &left.expression {
-                    println!("****************");
-                    //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
-                        //path, left, right, left.expression, right.expression);
                     let left_interval = left.get_as_interval();
                     let right_interval = right.get_as_interval();
-                    println!("left expr as interval: {:?}, right is {:?}", left_interval, right_interval);
-                    //TODO: pass a function as an argument
                     if let Some(lower_bound) = left_interval.lower_bound() {
                         if lower_bound <= right_interval.upper_bound().unwrap() { 
-                            println!("ow, stopping here");
-                            //i_state.entry_condition = self.in_state[&bb].entry_condition.clone();
-                            //i_state.entry_condition =  Rc::new(abstract_value::FALSE);
                             self.bv.stop_cond = true;
                         } 
                     }
 
             }
         }
+        return exit_condition.clone();
     }
 
     /// Indicates that the landing pad is finished and unwinding should
@@ -1762,63 +1714,41 @@ impl<'block, 'analysis, 'compilation, 'tcx, E>
             mir::BinOp::Div => left.divide(right),
             mir::BinOp::Eq => left.equals(right),
             mir::BinOp::Ge => {
-                if self.bv.guard.is_none() {
-                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
-                        //println!("===================");
-                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
-                        Some((path.clone(), right.clone(), "GE"))
-                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
-                        Some((path.clone(), right.clone(), "GE"))
+                if self.bv.threshold.is_none() {
+                    self.bv.threshold = if let Expression::Join { path, .. } = &left.expression {
+                        Some((path.clone(), right.clone()))
                     } else { None }
                 }
                 left.greater_or_equal(right)
             },
             mir::BinOp::Gt => { 
-                if self.bv.guard.is_none() {
+                if self.bv.threshold.is_none() {
                     let correction = AbstractValue::make_from(
                         Expression::CompileTimeConstant(ConstantDomain::I128(1)),
                         1
                     );
-                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
-                        //println!("===================");
-                        //println!("guard. left {:?}-{:?} \nright: {:?}", path, left, right);
-                        Some((path.clone(), right.addition(correction), "GT"))
-                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
-                        Some((path.clone(), right.addition(correction), "GT"))
+                    self.bv.threshold = if let Expression::Join { path, .. } = &left.expression {
+                        Some((path.clone(), right.addition(correction)))
                     } else { None }
                 }
                 left.greater_than(right)
             },
             mir::BinOp::Le => {
-                if self.bv.guard.is_none() {
-                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
-                        //println!("===================");
-                        //println!("guard. left {:?}-{:?},\n right: {:?}\nleft expression: {:?},\nright expression: {:?}",
-                            //path, left, right, left.expression, right.expression);
-                        //println!("left expr as interval: {:?}", left.get_as_interval());
-                        Some((path.clone(), right.clone(), "LE"))
-                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
-                        Some((path.clone(), right.clone(), "LE"))
+                if self.bv.threshold.is_none() {
+                    self.bv.threshold = if let Expression::Join { path, .. } = &left.expression {
+                        Some((path.clone(), right.clone()))
                     } else { None }
                 }
                 left.less_or_equal(right)
             },
             mir::BinOp::Lt => {
-              if self.bv.guard.is_none() {
+              if self.bv.threshold.is_none() {
                     let correction = AbstractValue::make_from(
                         Expression::CompileTimeConstant(ConstantDomain::I128(1)),
                         1
                     );
-                    self.bv.guard = if let Expression::Join { path, .. } = &left.expression {
-                        //println!("===================");
-                        //println!("guard. left {:?}-{:?}, right: {:?}", path, left, right);
-                        Some((path.clone(), right.addition(correction), "LT"))
-                    } else if let  Expression::WidenedJoin { path, .. } = &left.expression {
-                        //println!("GT. expresstion is not join. Expr: {:?} for {:?}", &left.expression, path);
-                        Some((path.clone(), right.addition(correction), "LT"))
+                    self.bv.threshold = if let Expression::Join { path, .. } = &left.expression {
+                        Some((path.clone(), right.addition(correction)))
                     } else { None }
                 }
                 left.less_than(right)

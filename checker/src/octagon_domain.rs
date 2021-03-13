@@ -5,7 +5,6 @@
 //
 
 use crate::expression::ExpressionType::{self, *};
-use crate::interval_domain::IntervalDomain;
 use log_derive::logfn_inputs;
 use serde::{Deserialize, Serialize};
 use std::cmp;
@@ -115,40 +114,6 @@ impl OctagonDomain {
         OctagonDomain::new(left, right)
     }
 
-    //#[logfn_inputs(TRACE)]
-    //pub fn add_x(&mut self, other: &Self) {
-        //self.dbm
-    //}
-
-    //#[logfn_inputs(TRACE)]
-    pub fn update_bounds(&mut self, y_interval: &IntervalDomain, x_interval: &IntervalDomain) {
-        let y_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
-        let y_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
-        let x_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
-        let x_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
-        self.dbm[0][1] = 2 * y_upper;
-        self.dbm[1][0] = -2 * y_lower;
-        //self.dbm[0][2] = y_upper - x_upper;
-        //self.dbm[0][3] = y_upper + x_upper;
-        //self.dbm[2][0] = -y_lower + x_lower;
-        //self.dbm[3][0] = y_lower + x_lower;
-
-    }
-
-    pub fn update_non_relational_bounds(&mut self, y_interval: &IntervalDomain) {
-        let y_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
-        let y_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
-        let x_upper = y_interval.upper_bound().unwrap_or(std::i128::MAX);
-        let x_lower = y_interval.lower_bound().unwrap_or(std::i128::MIN);
-        self.dbm[0][1] = 2 * y_upper;
-        self.dbm[1][0] = -2 * y_lower;
-        //self.dbm[0][2] = y_upper - x_upper;
-        //self.dbm[0][3] = y_upper + x_upper;
-        //self.dbm[2][0] = -y_lower + x_lower;
-        //self.dbm[3][0] = y_lower + x_lower;
-
-    }
-
     #[logfn_inputs(TRACE)]
     pub fn greater_or_equal(&self, other: &Self) -> Option<bool> {
         if self.is_bottom() || self.is_top() || other.is_bottom() || other.is_top() {
@@ -177,7 +142,6 @@ impl OctagonDomain {
 
     #[logfn_inputs(TRACE)]
     pub fn mul(&self, other: &Self) -> Self {
-        println!("well, value is {:?}", self);
         if self.is_bottom() || other.is_bottom() {
             return BOTTOM.clone();
         }
@@ -251,7 +215,6 @@ impl OctagonDomain {
         } else if self.dbm[1][0] <= other.dbm[0][1] {
             Some(true)
         } else if other.dbm[1][0] < self.dbm[0][1] {
-            println!("yep, that's right");
             Some(false)
         } else {
             None
@@ -321,12 +284,12 @@ impl OctagonDomain {
     }
 
     #[logfn_inputs(TRACE)]
-    pub fn remove_lower_bound(&self, lower: i128) -> Self {
+    pub fn set_lower_bound(&self, lower: i128) -> Self {
         OctagonDomain::new(lower, self.dbm[1][0])
     }
 
     #[logfn_inputs(TRACE)]
-    pub fn remove_upper_bound(&self, upper: i128) -> Self {
+    pub fn set_upper_bound(&self, upper: i128) -> Self {
         OctagonDomain::new(self.dbm[0][1], upper)
     }
 

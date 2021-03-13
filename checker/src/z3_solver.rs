@@ -178,15 +178,6 @@ impl SmtSolver<Z3ExpressionType> for Z3Solver {
     }
 
     #[logfn_inputs(TRACE)]
-    fn simplify(&self, z3_ast: &mut Z3ExpressionType) {
-        let _guard = Z3_MUTEX.lock().unwrap();
-        unsafe {
-            let simplified_ast = z3_sys::Z3_simplify(self.z3_context, *z3_ast);
-            *z3_ast = simplified_ast;
-        }
-    }
-
-    #[logfn_inputs(TRACE)]
     fn solve(&self) -> SmtResult {
         let _guard = Z3_MUTEX.lock().unwrap();
         unsafe {

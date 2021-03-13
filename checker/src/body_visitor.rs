@@ -42,7 +42,7 @@ pub struct BodyVisitor<'analysis, 'compilation, 'tcx, E> {
     pub cv: &'analysis mut CrateVisitor<'compilation, 'tcx>,
     pub tcx: TyCtxt<'tcx>,
     pub def_id: DefId,
-    pub guard: Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>,
+    pub threshold: Option<(Rc<Path>, Rc<AbstractValue>)>,
     pub stop_cond: bool,
     pub mir: &'tcx mir::Body<'tcx>,
     pub smt_solver: &'analysis mut dyn SmtSolver<E>,
@@ -75,8 +75,6 @@ pub struct BodyVisitor<'analysis, 'compilation, 'tcx, E> {
     pub type_visitor: TypeVisitor<'tcx>,
 }
 
-const Z3_SIMPLIFICATION_ENABLED: bool = false;
-
 impl<'analysis, 'compilation, 'tcx, E> Debug for BodyVisitor<'analysis, 'compilation, 'tcx, E> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         "BodyVisitor".fmt(f)
@@ -103,7 +101,7 @@ impl<'analysis, 'compilation, 'tcx, E> BodyVisitor<'analysis, 'compilation, 'tcx
             cv: crate_visitor,
             tcx,
             def_id,
-            guard: None,
+            threshold: None,
             stop_cond: false,
             mir,
             smt_solver,
@@ -1530,11 +1528,7 @@ impl<'analysis, 'compilation, 'tcx, E> BodyVisitor<'analysis, 'compilation, 'tcx
     #[logfn_inputs(TRACE)]
     fn solve_condition(&mut self, cond_val: &Rc<AbstractValue>) -> Option<bool> {
         let ce = &cond_val.expression;
-        let mut z3_ast = self.smt_solver.get_as_smt_predicate(ce);
-        if Z3_SIMPLIFICATION_ENABLED {
-            self.smt_solver.simplify(&mut z3_ast);
-        }
-        let cond_smt_expr = z3_ast;
+        let cond_smt_expr = self.smt_solver.get_as_smt_predicate(ce);
         match self.smt_solver.solve_expression(&cond_smt_expr) {
             SmtResult::Unsatisfiable => {
                 // If we get here, the solver can prove that cond_val is always false.

@@ -23,7 +23,7 @@ pub struct FixedPointVisitor<'fixed, 'analysis, 'compilation, 'tcx, E> {
     pub bv: &'fixed mut BodyVisitor<'analysis, 'compilation, 'tcx, E>,
     already_visited: HashTrieSet<mir::BasicBlock>,
     pub block_indices: Vec<mir::BasicBlock>,
-    contin: bool,
+    loop_exit_cond: bool,
     loop_anchors: HashSet<mir::BasicBlock>,
     dominators: Dominators<mir::BasicBlock>,
     in_state: HashMap<mir::BasicBlock, Environment>,
@@ -65,7 +65,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             already_visited: HashTrieSet::new(),
             bv: body_visitor,
             block_indices,
-            contin: true,
+            loop_exit_cond: true,
             loop_anchors,
             dominators,
             in_state,
@@ -103,12 +103,11 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         };
 
         if iteration_count >= 2 && self.bv.stop_cond {
-            self.contin = false;
-            println!("-------------------\n iteration #{:?}, contin: {}", iteration_count, self.contin);
+            self.loop_exit_cond = false;
         }
 
         // Note that iteration_count is zero unless bb is a loop anchor.
-        if self.contin && iteration_count != 0 && iteration_count != 1 && iteration_count <= 4 {
+        if self.loop_exit_cond && iteration_count != 0 && iteration_count != 1 && iteration_count <= 6 {
 
             // We do not have (and don't want to have) a way to distinguish the value of a widened
             // loop variable in one iteration from its value in the previous iteration, so
@@ -121,32 +120,23 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
             let invariant_entry_condition = previous_state
                 .entry_condition
                 .remove_conjuncts_that_depend_on(&loop_variants);
-            i_state = if iteration_count <= 3 {
-                println!("joining...");
+            i_state = if iteration_count <= 5 {
                 previous_state.join(i_state)
             } else {
-                println!("widening...");
-                previous_state.widen(i_state, &self.bv.guard)
+                previous_state.widen(i_state, &self.bv.threshold)
             };
-
-            //if let Some(guard) = &self.bv.guard {
-                //i_state.update_octagon(&guard.0);
-            //}
-            println!("------- num iter: {:?}", i_state.num_iter);
             i_state.entry_condition = invariant_entry_condition;
-        } else if self.contin && iteration_count > 4 {
+        } else if self.loop_exit_cond && iteration_count > 6 {
             // From iteration 3 onwards, the entry condition is not affected by changes in the loop
             // body, so we just stick to the one computed in iteration 3.
             let invariant_entry_condition = self.in_state[&bb].entry_condition.clone();
-            println!("widening...");
-            i_state = self.in_state[&bb].widen(i_state, &self.bv.guard);
+            i_state = self.in_state[&bb].widen(i_state, &self.bv.threshold);
             i_state.entry_condition = invariant_entry_condition;
         }
 
         self.in_state.insert(bb, i_state.clone());
         self.bv.current_environment = i_state.clone();
         let mut block_visitor = BlockVisitor::new(self.bv);
-        //block_visitor.update_octagons(&mut i_state);
         block_visitor.visit_basic_block(bb, &mut self.terminator_state);
         self.out_state
             .insert(bb, self.bv.current_environment.clone());
@@ -165,7 +155,7 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
         let mut last_block = loop_anchor;
         // Iterate at least 4 times so that widening kicks in for loop variables and at least
         // two iterations were performed starting with widened variables.
-        while (iteration_count <= 11 || changed) && self.contin {
+        while (iteration_count <= 6 || changed) && self.loop_exit_cond {
             self.already_visited = saved_already_visited.clone();
             self.bv.fresh_variable_offset = saved_fresh_variable_offset;
             let result = self.visit_loop_body(loop_anchor, iteration_count);
@@ -241,9 +231,9 @@ impl<'fixed, 'analysis, 'compilation, 'tcx, E>
 
                 // Check for a fixed point, once two iterations with widened variables were executed.
                 if 
-                    iteration_count > 11 &&
+                    iteration_count > 6 &&
                     !self.out_state[&last_block].subset(&old_state[&last_block])
-                    && self.contin
+                    && self.loop_exit_cond
                 {
                     // There is some path for which self.bv.current_environment.value_at(path) includes
                     // a value this is not present in self.out_state[last_block].value_at(path), so any block

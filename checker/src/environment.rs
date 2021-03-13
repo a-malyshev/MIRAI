@@ -62,14 +62,6 @@ impl Environment {
         self.value_map.get(path)
     }
 
-    //pub fn update_octagon(&mut self, path: &Rc<Path>) {
-        //let x = self.value_at(path);
-        //for (p, val1) in self.value_map.iter() {
-            //let updated_val = val1.update_dbm(&x);
-            ////self.value_map.insert_mut(p, updated_val);
-        //}
-    //}
-
     /// Updates the path to value map so that the given path now points to the given value.
     #[logfn_inputs(TRACE)]
     pub fn update_value_at(&mut self, path: Rc<Path>, value: Rc<AbstractValue>) {
@@ -231,7 +223,7 @@ impl Environment {
     /// Returns an environment with a path for every entry in self and other and an associated
     /// value that is the widen of self.value_at(path) and other.value_at(path)
     #[logfn_inputs(TRACE)]
-    pub fn widen(&self, other: Environment, threshold: &Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>) -> Environment {
+    pub fn widen(&self, other: Environment, threshold: &Option<(Rc<Path>, Rc<AbstractValue>)>) -> Environment {
         self.join_or_widen(other, |x, y, p| {
             if let Some(val) = x.get_widened_subexpression(p) {
                 return val;
@@ -242,22 +234,6 @@ impl Environment {
             x.join(y.clone(), p).widen(p)
         }, threshold)
     }
-
-
-    fn calc_delta(&self, val1: &Rc<AbstractValue>, val2: &Rc<AbstractValue>) -> i128 {
-        let prev_val = val1.get_as_interval();
-        let cur_val = val2.get_as_interval();
-        println!("prev: {:?},\ncur: {:?}", prev_val, cur_val);
-        //println!("bottom is resolved to false? {:?}, expr: {:?}", prev_val.lower_bound(), val2.expression);
-        let value: i128 = if prev_val.lower_bound().is_none() || cur_val.upper_bound().is_none() || 
-                             cur_val.lower_bound().is_none() || prev_val.upper_bound().is_none() { 0 } else {
-            let max_val = max(cur_val.upper_bound().unwrap(), prev_val.upper_bound().unwrap());
-            let min_val = min(cur_val.lower_bound().unwrap(), prev_val.lower_bound().unwrap());
-            if max_val - min_val < 0 { 0 } else { max_val - min_val }
-        };
-        return value;
-    }
-
 
     /// Returns a set of paths that do not have identical associated values in both self and other.
     #[logfn_inputs(TRACE)]
@@ -286,10 +262,44 @@ impl Environment {
         loop_variants
     }
 
+    /// Calculates delta of a variable based on the previous and current values. 
+    fn calc_delta(&self, val1: &Rc<AbstractValue>, val2: &Rc<AbstractValue>) -> i128 {
+        let prev_val = val1.get_as_interval();
+        let cur_val = val2.get_as_interval();
+        if prev_val.lower_bound().is_none() || cur_val.upper_bound().is_none() || 
+           cur_val.lower_bound().is_none() || prev_val.upper_bound().is_none() { 0 } 
+        else {
+            let max_val = max(cur_val.upper_bound().unwrap(), prev_val.upper_bound().unwrap());
+            let min_val = min(cur_val.lower_bound().unwrap(), prev_val.lower_bound().unwrap());
+            if max_val - min_val < 0 { 0 } else { max_val - min_val }
+        }
+    }
+
+    fn calc_num_iter(&self,
+            value_map1: &HashTrieMap<Rc<Path>, Rc<AbstractValue>>,
+            delta_map: &HashMap<Rc<Path>, i128>,
+            threshold: &(Rc<Path>, Rc<AbstractValue>)
+            ) -> Option<i128> {
+
+        // extract loop_guard_var
+        let loop_guard_var_path = threshold.0.clone();
+        let loop_guard_var = value_map1.get(&loop_guard_var_path).unwrap();
+        // calc diff between threshold and cur val
+        let loop_guard_var_diff = threshold.1.subtract(loop_guard_var.clone());
+        // calc delta for loop_guard_var
+        let loop_guard_var_delta = delta_map.get(&loop_guard_var_path).unwrap_or(&1);
+
+        return if let Some(num) = loop_guard_var_diff.get_as_interval().upper_bound() {
+            Some(num / loop_guard_var_delta + 1)
+        } else {
+            None
+        };
+    }
+
     /// Returns an environment with a path for every entry in self and other and an associated
     /// value that is the join or widen of self.value_at(path) and other.value_at(path).
     #[logfn(TRACE)]
-    fn join_or_widen<F>(&self, other: Environment, join_or_widen: F, threshold: &Option<(Rc<Path>, Rc<AbstractValue>, &'static str)>) -> Environment
+    fn join_or_widen<F>(&self, other: Environment, join_or_widen: F, threshold: &Option<(Rc<Path>, Rc<AbstractValue>)>) -> Environment
     where
         F: Fn(&Rc<AbstractValue>, &Rc<AbstractValue>, &Rc<Path>) -> Rc<AbstractValue>,
     {
@@ -303,80 +313,33 @@ impl Environment {
             match value_map2.get(path) {
                 Some(val2) => {
                     if delta_map.get(&p).is_none() {
-                    //if threshold.is_none() {
-                        //println!("delta map doesn't contain value for {:?}", p);
-                                  //if let Expression::ConditionalExpression(consequent, alternate, ..) = val1.expression {
                         let value = self.calc_delta(val1, val2);
-                        //println!("adding value to delta map: {:?} for {:?}", value, p);
                         let cur_delta = delta_map.get(&p);
-                        let copy = cur_delta.unwrap_or(&-1i128).clone();
                         if let Some(delta) = cur_delta {
                             if &value > delta { delta_map.insert(p.clone(), value); };
                         } else {
                             delta_map.insert(p.clone(), value);
                         }
-                        println!("old delta: {:?}, updated: {:?} for {:?}", copy, value, p);
                     }
-                    //}
-                    let y_delta = delta_map.get(&p).unwrap_or_else(|| {
-                        println!("didn't find value for {:?}", p);
-                        &0i128
-                    });
-                    println!("y delta is {:?} for {:?}", y_delta, p);
-                    //let t = if let Some((_, v)) = threshold { 
-                        //println!("threshold is v: {:?}", v);
-                            //v.clone()
-                    //} else { 
-                        //println!("threshold is val2, i.e. guard is Non: {:?}", val2);
-                        //val2.clone() 
-                    //};
-                    // if threshold hasn't been set yet, we simply widen to the val2 (val from
-                    // other env)
-                    //if let None = threshold {
-                        //println!("threshold is not set yet, widening up to {:?}", &val2);
-                        //let widened_val = join_or_widen(val1, &val2, path);
-                        //value_map.insert_mut(p.clone(), widened_val);
-                    //} else {
-                        // if num of iter is none, do ->
-                    if num_iter.is_none() && threshold.is_some(){
-                        // extract x
-                        // get value for x in the current env and get the current value
-                        // TODO: how to unfold threshold in a better way?
-                        let x_path = threshold.as_ref().unwrap().0.clone();
-                        println!("x path: {:?}", x_path);
-                        let x = value_map1.get(&x_path).unwrap();
-                        println!("x: {:?}", x);
-                        // calc diff between threshold and cur val
-                        let x_diff = threshold.as_ref().unwrap().1.subtract(x.clone());
-                        println!("x diff: {:?} (as interval: {:?})", x_diff, x_diff.get_as_interval());
-                        // get delta for x
-                        let x_delta = delta_map.get(&x_path).unwrap_or(&1);
-                        //let x_delta = 1;
-                        // divide diff by delta as num of iterations 
-                        num_iter = if let Some(num) = x_diff.get_as_interval().upper_bound() {
-                            Some(num / x_delta)
-                        } else {
-                            None
-                        };
-                        println!("num of iter: {:?}", num_iter);
-                        println!("path: {:?}", &x_path);
+                    let loop_var_delta = delta_map.get(&p).unwrap_or_else(|| &0);
+                    if num_iter.is_none() {
+                        if let Some(th) = threshold {
+                            num_iter = self.calc_num_iter(value_map1, &delta_map, th);
+                        }
                     }
 
-                    //calculate threshold
-                    let t: Option<Rc<AbstractValue>>;
-                    if let None = threshold {
-                        t = Some(val2.clone());
-                        println!("joined value is {:?} for {:?}", t, path);
+                    let new_val: Rc<AbstractValue>;
+                    if threshold.is_none() {
+                        new_val = val2.clone();
                     } else {
-                        t = Some(AbstractValue::make_from(
-                            Expression::CompileTimeConstant(ConstantDomain::I128((num_iter.unwrap() * y_delta.clone())+2)),
+                        new_val = AbstractValue::make_from(
+                            Expression::CompileTimeConstant(ConstantDomain::I128(
+                                    (num_iter.unwrap() * loop_var_delta.clone())+1)),
                             1
-                        ));
-                        println!("calculated threshold is {:?} for {:?}", t, path);
+                        );
                     }
 
-                    //println!("threshold: {:?}", t);
-                    value_map.insert_mut(p, join_or_widen(val1, &t.unwrap().clone(), path));
+                    value_map.insert_mut(p, join_or_widen(val1, &new_val.clone(), path));
                 } 
                 None => {
                     if !path.is_rooted_by_parameter() || val1.is_unit() {
@@ -394,7 +357,6 @@ impl Environment {
             }
         }
 
-        println!("well, we are here, finally");
         for (path, val2) in value_map2.iter() {
             if !value_map1.contains_key(path) {
                 if !path.is_rooted_by_parameter() {

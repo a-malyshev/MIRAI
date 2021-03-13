@@ -57,8 +57,6 @@ pub trait SmtSolver<SmtExpressionType> {
         );
     }
 
-    fn simplify(&self, expression: &mut SmtExpressionType);
-
     /// Try to find an assignment of values to the free variables so that the assertions in the
     /// current context are all true.
     fn solve(&self) -> SmtResult;
@@ -99,8 +97,6 @@ impl SmtSolver<()> for SolverStub {
     fn invert_predicate(&self, _: &()) {}
 
     fn set_backtrack_position(&self) {}
-
-    fn simplify(&self, _: &mut ()) {}
 
     fn solve(&self) -> SmtResult {
         SmtResult::Undefined
